@@ -5,13 +5,13 @@ import numpy as np
 import cv2
 import hashlib
 
-# ============ IN-MEMORY DB (Hugging Face compatible) ============
+# ============ IN-MEMORY DB ============
 def hash_pw(p):
     return hashlib.sha256(p.encode()).hexdigest()
 
 def init_db():
     if "user_db" not in st.session_state:
-        st.session_state.user_db = {}  # {username: {"email": ..., "password": ...}}
+        st.session_state.user_db = {}
 
 def add_user(username, email, password):
     if username in st.session_state.user_db:
@@ -25,9 +25,6 @@ def check_user(username, password):
     u = st.session_state.user_db.get(username)
     return u is not None and u["password"] == hash_pw(password)
 
-def email_exists(email):
-    return any(v["email"] == email for v in st.session_state.user_db.values())
-
 # ============ PAGE CONFIG ============
 st.set_page_config(page_title="AgroAI", page_icon="🌿", layout="wide", initial_sidebar_state="collapsed")
 
@@ -37,6 +34,8 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'username' not in st.session_state:
     st.session_state.username = ""
+if 'page' not in st.session_state:
+    st.session_state.page = "home"
 
 # ============ CSS ============
 st.markdown("""
@@ -48,7 +47,6 @@ st.markdown("""
 [data-testid="collapsedControl"] { display: none !important; }
 #MainMenu, footer, header { visibility: hidden !important; }
 .block-container { padding: 0 !important; max-width: 100% !important; }
-div[data-baseweb="select"] { display: none !important; }
 
 .navbar {
     display:flex; justify-content:space-between; align-items:center;
@@ -62,15 +60,15 @@ div[data-baseweb="select"] { display: none !important; }
 .nav-links { display:flex; align-items:center; gap:4px; }
 .nav-link {
     color:rgba(255,255,255,0.55); font-size:14px; font-weight:500;
-    padding:8px 14px; border-radius:7px; text-decoration:none !important;
+    padding:8px 14px; border-radius:7px; cursor:pointer;
 }
 .nav-link:hover { color:white; background:rgba(255,255,255,0.06); }
-.nav-link.active { color:white; background:rgba(79,142,247,0.12); color:#4f8ef7; }
+.nav-link.active { color:#4f8ef7; background:rgba(79,142,247,0.12); }
 .nav-btn {
     background:#4f8ef7; color:white !important;
     font-size:14px; font-weight:600;
     padding:8px 20px; border-radius:8px;
-    margin-left:8px; text-decoration:none !important;
+    margin-left:8px; cursor:pointer; border:none;
 }
 .nav-user {
     color:rgba(255,255,255,0.7); font-size:14px;
@@ -81,7 +79,6 @@ div[data-baseweb="select"] { display: none !important; }
 }
 .main-wrap { margin-top:64px; }
 
-/* AUTH */
 .auth-page {
     min-height:calc(100vh - 64px);
     display:flex; align-items:center;
@@ -95,12 +92,9 @@ div[data-baseweb="select"] { display: none !important; }
 }
 .auth-title { color:white; font-size:24px; font-weight:700; margin-bottom:4px; }
 .auth-sub { color:rgba(255,255,255,0.35); font-size:14px; margin-bottom:28px; }
-.auth-forgot { text-align:right; margin:-4px 0 16px; }
-.auth-forgot a { color:#4f8ef7; text-decoration:none; font-size:13px; }
 .auth-footer { margin-top:20px; text-align:center; color:rgba(255,255,255,0.3); font-size:14px; }
 .auth-footer a { color:#4f8ef7; text-decoration:none; font-weight:500; }
 
-/* INPUTS */
 .stTextInput > label { color:rgba(255,255,255,0.45) !important; font-size:13px !important; font-weight:500 !important; }
 .stTextInput input {
     background:rgba(255,255,255,0.05) !important;
@@ -120,7 +114,6 @@ div[data-baseweb="select"] { display: none !important; }
     margin-top:4px !important;
 }
 
-/* HOME */
 .hero {
     text-align:center; padding:96px 20px 64px;
     max-width:680px; margin:0 auto;
@@ -160,7 +153,6 @@ div[data-baseweb="select"] { display: none !important; }
 }
 .disease-dot { width:6px; height:6px; background:#4f8ef7; border-radius:50%; flex-shrink:0; }
 
-/* DETECTION */
 .detect-wrap { padding:40px 48px; }
 .detect-card {
     background:#0d1f3c; border:1px solid rgba(255,255,255,0.06);
@@ -178,7 +170,6 @@ div[data-baseweb="select"] { display: none !important; }
 .result-name { color:white; font-size:15px; font-weight:600; margin-bottom:3px; }
 .result-conf { color:rgba(255,255,255,0.35); font-size:13px; }
 
-/* RESULTS */
 .results-wrap { padding:40px 48px; }
 .perf-grid {
     display:grid; grid-template-columns:repeat(4,1fr);
@@ -191,7 +182,6 @@ div[data-baseweb="select"] { display: none !important; }
 .perf-num { color:#4f8ef7; font-size:26px; font-weight:700; margin-bottom:4px; }
 .perf-lbl { color:rgba(255,255,255,0.3); font-size:11px; text-transform:uppercase; letter-spacing:1px; }
 
-/* ABOUT */
 .about-wrap { padding:40px 48px; }
 .about-card {
     background:#0d1f3c; border:1px solid rgba(255,255,255,0.06);
@@ -200,7 +190,6 @@ div[data-baseweb="select"] { display: none !important; }
 .about-card h3 { color:white; font-size:15px; font-weight:600; margin-bottom:8px; }
 .about-card p { color:rgba(255,255,255,0.42); font-size:14px; line-height:1.8; }
 
-/* MISC */
 .footer {
     text-align:center; padding:28px;
     color:rgba(255,255,255,0.18); font-size:13px;
@@ -211,59 +200,59 @@ div[data-baseweb="select"] { display: none !important; }
     border:2px dashed rgba(79,142,247,0.18) !important;
     border-radius:10px !important;
 }
-.stSuccess > div {
-    background:rgba(34,197,94,0.07) !important;
-    border:1px solid rgba(34,197,94,0.18) !important;
-    color:#86efac !important; border-radius:8px !important;
-}
-.stError > div {
-    background:rgba(239,68,68,0.07) !important;
-    border:1px solid rgba(239,68,68,0.18) !important;
-    color:#fca5a5 !important; border-radius:8px !important;
-}
 h1,h2,h3,p { color:white !important; }
 a { text-decoration:none !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ============ QUERY PARAMS ============
-query = st.query_params.get("page", "home")
+# ============ PAGE STATE (session_state based — no query params) ============
+def nav(page):
+    st.session_state.page = page
+    st.rerun()
+
+query = st.session_state.page
+
+# Redirect login/signup if already logged in
 if st.session_state.logged_in and query in ["login", "signup"]:
     query = "home"
+    st.session_state.page = "home"
 
 # ============ NAVBAR ============
-if st.session_state.logged_in:
-    right = f'<span class="nav-user">👤 {st.session_state.username}</span>'
-else:
-    right = '<a class="nav-btn" href="?page=login">Login</a>'
+st.markdown('<div class="navbar"><div class="nav-logo">🌿 Agro<span>AI</span></div><div class="nav-links">', unsafe_allow_html=True)
 
-page_links = {
-    "home": "Home", "detection": "Detection",
-    "results": "Results", "about": "About Project"
-}
-nav_html = ""
-for pg, label in page_links.items():
-    active = 'active' if query == pg else ''
-    nav_html += f'<a class="nav-link {active}" href="?page={pg}">{label}</a>'
+pages = [("home","Home"),("detection","Detection"),("results","Results"),("about","About Project")]
+cols = st.columns([3] + [1]*len(pages) + [1])
 
-if st.session_state.logged_in:
-    nav_html += f'<a class="nav-link" href="?page=logout">Logout</a>'
+with cols[0]:
+    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
 
-st.markdown(f"""
-<div class="navbar">
-    <div class="nav-logo">🌿 Agro<span>AI</span></div>
-    <div class="nav-links">
-        {nav_html}
-        {right}
-    </div>
-</div>
-<div class="main-wrap">
-""", unsafe_allow_html=True)
+for i, (pg, label) in enumerate(pages):
+    with cols[i+1]:
+        active_style = "background:rgba(79,142,247,0.12);color:#4f8ef7;" if query == pg else "color:rgba(255,255,255,0.55);"
+        if st.button(label, key=f"nav_{pg}"):
+            if pg == "detection" and not st.session_state.logged_in:
+                nav("login")
+            else:
+                nav(pg)
+
+with cols[-1]:
+    if st.session_state.logged_in:
+        if st.button(f"👤 {st.session_state.username}", key="nav_user"):
+            pass
+        if st.button("Logout", key="nav_logout"):
+            st.session_state.logged_in = False
+            st.session_state.username = ""
+            nav("login")
+    else:
+        if st.button("Login", key="nav_login"):
+            nav("login")
+
+st.markdown('</div></div><div class="main-wrap">', unsafe_allow_html=True)
 
 # ============ LOGIN ============
 if query == "login":
     st.markdown('<div class="auth-page">', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("""
         <div class="auth-card">
@@ -273,22 +262,22 @@ if query == "login":
         """, unsafe_allow_html=True)
         username = st.text_input("Username", key="l_user")
         password = st.text_input("Password", type="password", key="l_pass")
-        st.markdown('<div class="auth-forgot"><a href="#">Forgot Password?</a></div>', unsafe_allow_html=True)
         if st.button("Login", key="login_btn"):
             if check_user(username, password):
                 st.session_state.logged_in = True
                 st.session_state.username = username
-                st.query_params["page"] = "home"
-                st.rerun()
+                nav("home")
             else:
                 st.error("Invalid username or password")
-        st.markdown('<div class="auth-footer">Don\'t have an account? <a href="?page=signup">Sign Up</a></div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-footer">Don\'t have an account? </div>', unsafe_allow_html=True)
+        if st.button("Sign Up", key="goto_signup"):
+            nav("signup")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============ SIGNUP ============
 elif query == "signup":
     st.markdown('<div class="auth-page">', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("""
         <div class="auth-card">
@@ -313,11 +302,12 @@ elif query == "signup":
                     st.error("Email already registered")
                 elif result:
                     st.success("Account created! Please sign in.")
-                    st.query_params["page"] = "login"
-                    st.rerun()
+                    nav("login")
                 else:
                     st.error("Username already exists")
-        st.markdown('<div class="auth-footer">Already have an account? <a href="?page=login">Sign In</a></div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-footer">Already have an account?</div>', unsafe_allow_html=True)
+        if st.button("Sign In", key="goto_login"):
+            nav("login")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============ HOME ============
@@ -349,10 +339,9 @@ elif query == "home":
 # ============ DETECTION ============
 elif query == "detection":
     if not st.session_state.logged_in:
-        st.query_params["page"] = "login"
-        st.rerun()
+        nav("login")
 
-    st.markdown('<div class="detect-wrap"><div class="section-title">Disease Detection</div>', unsafe_allow_html=True)
+    st.markdown('<div class="detect-wrap"><div class="section-title" style="color:white;font-size:19px;font-weight:600;margin-bottom:20px;">Disease Detection</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2, gap="large")
 
     with col1:
@@ -435,7 +424,7 @@ elif query == "about":
     </div>
     <div class="about-card">
         <h3>Technology Stack</h3>
-        <p>YOLOv8 Object Detection · Python 3.10 · PyTorch · Streamlit · OpenCV · Pillow</p>
+        <p>YOLOv8 Object Detection · Python 3.11 · PyTorch · Streamlit · OpenCV · Pillow</p>
     </div>
     <div class="about-card">
         <h3>Dataset</h3>
@@ -447,13 +436,6 @@ elif query == "about":
     </div>
     </div>
     """, unsafe_allow_html=True)
-
-# ============ LOGOUT ============
-elif query == "logout":
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.query_params["page"] = "login"
-    st.rerun()
 
 st.markdown("""
 </div>
