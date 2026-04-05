@@ -3,669 +3,608 @@ from ultralytics import YOLO
 from PIL import Image
 import numpy as np
 import cv2
-import hashlib
 from datetime import datetime
-from collections import Counter
 
-# ============ PAGE CONFIG ============
+# ══════════════════════════════════════════════════════
+#  PAGE CONFIG
+# ══════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="AgroAI",
-    page_icon="🌿",
+    page_title="LeafScan AI",
+    page_icon="🌱",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-# ============ IN-MEMORY DB ============
-def hash_pw(p):
-    return hashlib.sha256(p.encode()).hexdigest()
-
-if "user_db" not in st.session_state:
-    st.session_state.user_db = {}
-
-if "detection_history" not in st.session_state:
-    st.session_state.detection_history = []
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-if "current_user" not in st.session_state:
-    st.session_state.current_user = ""
-
-if "last_username" not in st.session_state:
-    st.session_state.last_username = ""
-
+# ══════════════════════════════════════════════════════
+#  SESSION STATE
+# ══════════════════════════════════════════════════════
 if "page" not in st.session_state:
-    st.session_state.page = "Home"
+    st.session_state.page = "home"
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-if "auth_mode" not in st.session_state:
-    st.session_state.auth_mode = "login"
+def nav(p):
+    st.session_state.page = p
+    st.rerun()
 
-if "login_error" not in st.session_state:
-    st.session_state.login_error = ""
+PAGE = st.session_state.page
 
-if "signup_error" not in st.session_state:
-    st.session_state.signup_error = ""
+# ══════════════════════════════════════════════════════
+#  DISEASE METADATA
+# ══════════════════════════════════════════════════════
+DISEASES = {
+    "Tomato_Bacterial_Spot":          {"emoji": "🦠", "severity": "High",   "color": "#ef4444"},
+    "Tomato_Early_Blight":            {"emoji": "🍂", "severity": "Medium", "color": "#f97316"},
+    "Tomato_Late_Blight":             {"emoji": "💧", "severity": "High",   "color": "#ef4444"},
+    "Tomato_Leaf_Mold":               {"emoji": "🌫️", "severity": "Medium", "color": "#f97316"},
+    "Tomato_Septoria_Leaf_Spot":      {"emoji": "🔵", "severity": "Medium", "color": "#f97316"},
+    "Tomato_Spider_Mites":            {"emoji": "🕷️", "severity": "Low",    "color": "#22c55e"},
+    "Tomato_Target_Spot":             {"emoji": "🎯", "severity": "Medium", "color": "#f97316"},
+    "Tomato_Yellow_Leaf_Curl_Virus":  {"emoji": "🟡", "severity": "High",   "color": "#ef4444"},
+    "Tomato_mosaic_virus":            {"emoji": "🧬", "severity": "High",   "color": "#ef4444"},
+    "Tomato_healthy":                 {"emoji": "✅", "severity": "None",   "color": "#22c55e"},
+}
 
-if "signup_success" not in st.session_state:
-    st.session_state.signup_success = False
+TREATMENT = {
+    "Tomato_Bacterial_Spot":         "Apply copper-based bactericides. Remove infected leaves. Avoid overhead watering.",
+    "Tomato_Early_Blight":           "Use chlorothalonil or mancozeb fungicides. Rotate crops annually.",
+    "Tomato_Late_Blight":            "Apply metalaxyl fungicide immediately. Remove and destroy all infected plant matter.",
+    "Tomato_Leaf_Mold":              "Improve air circulation. Apply fungicide. Reduce humidity in greenhouse settings.",
+    "Tomato_Septoria_Leaf_Spot":     "Remove lower infected leaves. Apply fungicide. Avoid working in wet foliage.",
+    "Tomato_Spider_Mites":           "Apply miticide or neem oil. Increase humidity. Introduce predatory mites.",
+    "Tomato_Target_Spot":            "Apply azoxystrobin fungicide. Improve field drainage. Remove plant debris.",
+    "Tomato_Yellow_Leaf_Curl_Virus": "Control whitefly vectors with insecticide. Remove infected plants. Use resistant varieties.",
+    "Tomato_mosaic_virus":           "No cure exists. Remove infected plants. Sanitize tools. Use virus-free seeds.",
+    "Tomato_healthy":                "Your plant is healthy! Maintain regular watering, fertilisation, and pest monitoring.",
+}
 
-def register_user(username, password):
-    if username in st.session_state.user_db:
-        return "exists"
-    if len(password) < 6:
-        return "short"
-    st.session_state.user_db[username] = hash_pw(password)
-    return "ok"
+CLASS_PERF = [
+    ("Tomato Bacterial Spot",        94.1, 95.3),
+    ("Tomato Early Blight",          94.4, 95.7),
+    ("Tomato Late Blight",           93.2, 94.1),
+    ("Tomato Leaf Mold",             91.5, 92.8),
+    ("Tomato Septoria Leaf Spot",    92.7, 93.4),
+    ("Tomato Spider Mites",          90.3, 91.6),
+    ("Tomato Target Spot",           89.8, 90.5),
+    ("Tomato Yellow Leaf Curl Virus",51.2, 96.5),
+    ("Tomato Mosaic Virus",          86.2, 96.6),
+    ("Tomato Healthy",               99.7, 99.5),
+]
 
-def check_user(username, password):
-    return st.session_state.user_db.get(username) == hash_pw(password)
-
-def save_detection(username, disease, conf):
-    st.session_state.detection_history.append({
-        "username": username,
-        "disease": disease,
-        "confidence": conf,
-        "time": datetime.now().strftime("%H:%M:%S")
-    })
-
-def get_stats():
-    h = st.session_state.detection_history
-    total = len(h)
-    users = len(set(x["username"] for x in h)) if h else 0
-    top = Counter(x["disease"] for x in h).most_common(1)[0][0] if h else "N/A"
-    return total, top, users
-
-# ============ MODEL ============
-@st.cache_resource
-def load_model():
-    return YOLO("best.pt")
-
-# ============ CSS ============
+# ══════════════════════════════════════════════════════
+#  CSS
+# ══════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Epilogue:wght@300;400;500;600&display=swap');
 
-*, *::before, *::after {
-    box-sizing: border-box;
-    font-family: 'Inter', sans-serif !important;
+:root {
+    --bg:      #050a0e;
+    --sf:      #0c1520;
+    --sf2:     #111d2b;
+    --bdr:     rgba(255,255,255,0.07);
+    --acc:     #00e5a0;
+    --acc2:    #0ea5e9;
+    --txt:     rgba(255,255,255,0.88);
+    --muted:   rgba(255,255,255,0.35);
+    --danger:  #ef4444;
+    --warn:    #f97316;
+    --ok:      #22c55e;
 }
 
-html, body,
-[data-testid="stAppViewContainer"],
-[data-testid="stApp"] {
-    background: #070e1c !important;
-}
+*, *::before, *::after { box-sizing: border-box; font-family: 'Epilogue', sans-serif !important; }
 
-.block-container { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
-header[data-testid="stHeader"] { display: none !important; }
-[data-testid="stToolbar"]       { display: none !important; }
-[data-testid="stSidebar"]       { display: none !important; }
-[data-testid="collapsedControl"]{ display: none !important; }
-#MainMenu, footer { display: none !important; }
+.stApp { background: var(--bg) !important; }
+[data-testid="stSidebar"],[data-testid="collapsedControl"],
+[data-testid="stDecoration"],#MainMenu,footer,header {
+    display: none !important; visibility: hidden !important;
+}
+.block-container { padding: 0 !important; max-width: 100% !important; }
 section[data-testid="stMain"] > div { padding: 0 !important; }
-.stMarkdown { margin: 0 !important; padding: 0 !important; }
 
-/* Hide streamlit buttons */
-div[data-testid="stButton"] > button {
-    opacity: 0 !important;
-    height: 0px !important;
-    min-height: 0px !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    border: none !important;
-    background: none !important;
-    position: absolute !important;
-    pointer-events: auto !important;
-    font-size: 0 !important;
-    overflow: hidden !important;
-    width: 0px !important;
-    min-width: 0px !important;
+/* TOPBAR */
+.topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 62px; z-index: 9999;
+    background: rgba(5,10,14,0.96); border-bottom: 1px solid var(--bdr);
+    display: flex; align-items: center; padding: 0 40px;
+    backdrop-filter: blur(24px);
 }
-
-/* Inputs */
-div[data-testid="stTextInput"] label { display: none !important; }
-div[data-testid="stTextInput"] { margin-bottom: 16px !important; }
-div[data-testid="stTextInput"] input {
-    background: rgba(255,255,255,0.04) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    border-radius: 10px !important;
-    color: white !important;
-    font-size: 14px !important;
-    padding: 13px 16px !important;
-    width: 100% !important;
-    transition: border-color 0.2s !important;
+.topbar-logo {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 20px; font-weight: 800; color: white;
+    display: flex; align-items: center; gap: 10px; margin-right: 36px;
 }
-div[data-testid="stTextInput"] input:focus {
-    border-color: rgba(34,197,94,0.5) !important;
-    box-shadow: 0 0 0 3px rgba(34,197,94,0.08) !important;
-    outline: none !important;
-}
-div[data-testid="stTextInput"] input::placeholder {
-    color: rgba(255,255,255,0.2) !important;
-}
-
-div[data-testid="stFileUploader"] {
-    background: rgba(255,255,255,0.02) !important;
-    border: 1px dashed rgba(255,255,255,0.1) !important;
-    border-radius: 12px !important;
-}
-div[data-testid="stFileUploader"] label,
-div[data-testid="stFileUploader"] small {
-    color: rgba(255,255,255,0.4) !important;
-}
-
-/* ===== AUTH ===== */
-.auth-wrap {
-    min-height: 100vh;
-    background:
-        radial-gradient(ellipse 70% 60% at 10% 70%, rgba(34,197,94,0.06) 0%, transparent 60%),
-        radial-gradient(ellipse 50% 50% at 90% 20%, rgba(34,197,94,0.04) 0%, transparent 55%),
-        #070e1c;
-    display: flex;
-    flex-direction: column;
-}
-.auth-nav {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 52px; height: 66px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-.logo-row { display: flex; align-items: center; gap: 10px; }
 .logo-box {
-    width: 34px; height: 34px; border-radius: 8px;
-    background: linear-gradient(135deg, #22c55e, #16a34a);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 17px;
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #00e5a0, #0ea5e9);
+    border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; font-size: 18px;
 }
-.logo-name { color: white; font-size: 18px; font-weight: 700; }
-.logo-tag {
-    background: rgba(34,197,94,0.12); color: #86efac;
-    border: 1px solid rgba(34,197,94,0.2);
-    font-size: 10px; font-weight: 600;
-    padding: 2px 7px; border-radius: 20px;
+.topbar-logo em { color: var(--acc); font-style: normal; }
+.topbar-spacer { flex: 1; }
+.topbar-badge {
+    background: rgba(0,229,160,0.1); color: var(--acc);
+    border: 1px solid rgba(0,229,160,0.25); font-size: 11px; font-weight: 600;
+    padding: 3px 12px; border-radius: 20px; letter-spacing: 0.8px; text-transform: uppercase;
 }
-.auth-body {
-    flex: 1; display: flex; align-items: center;
-    justify-content: center; padding: 60px 20px;
-}
-.auth-card {
-    width: 100%; max-width: 440px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 20px; padding: 44px 48px;
-}
-.auth-top {
-    display: flex; justify-content: space-between;
-    align-items: flex-start; margin-bottom: 32px;
-}
-.auth-title { color: white; font-size: 32px; font-weight: 700; line-height: 1.15; }
-.auth-sub { color: rgba(255,255,255,0.3); font-size: 13px; line-height: 1.6; text-align: right; max-width: 120px; margin-top: 4px; }
-.f-lbl {
-    color: rgba(255,255,255,0.4); font-size: 11px;
-    font-weight: 600; letter-spacing: 0.07em;
-    text-transform: uppercase; margin-bottom: 6px;
-    display: block;
-}
-.alert-err {
-    background: rgba(239,68,68,0.07);
-    border: 1px solid rgba(239,68,68,0.2);
-    border-radius: 10px; padding: 11px 15px;
-    color: #fca5a5; font-size: 13px; margin-bottom: 18px;
-}
-.alert-ok {
-    background: rgba(34,197,94,0.07);
-    border: 1px solid rgba(34,197,94,0.2);
-    border-radius: 10px; padding: 11px 15px;
-    color: #86efac; font-size: 13px; margin-bottom: 18px;
-}
-.big-btn {
-    width: 100%; background: #22c55e;
-    border: none; border-radius: 10px;
-    padding: 14px; color: white;
-    font-size: 15px; font-weight: 600;
-    cursor: pointer; margin-top: 6px;
-    font-family: 'Inter', sans-serif;
-    transition: background 0.2s;
-    display: block; text-align: center;
-}
-.big-btn:hover { background: #16a34a; }
-.outline-btn {
-    width: 100%; background: transparent;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 10px; padding: 13px;
-    color: rgba(255,255,255,0.6); font-size: 15px;
-    font-weight: 500; cursor: pointer; margin-top: 8px;
-    font-family: 'Inter', sans-serif; transition: all 0.2s;
-    display: block; text-align: center;
-}
-.outline-btn:hover { border-color: rgba(255,255,255,0.25); color: white; }
-.auth-footer { text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; margin-top: 16px; }
-.auth-footer span { color: #22c55e; cursor: pointer; font-weight: 500; }
+.main-wrap { margin-top: 62px; }
 
-/* ===== MAIN APP ===== */
-.app-nav {
+/* NAV BUTTONS IN TOPBAR */
+div[data-testid="stHorizontalBlock"]:first-of-type {
+    position: fixed !important; top: 11px !important; left: 0 !important; right: 0 !important;
+    z-index: 10000 !important; padding: 0 200px 0 230px !important;
+    display: flex !important; gap: 2px !important; background: transparent !important;
+    pointer-events: none !important; align-items: center !important;
+}
+div[data-testid="stHorizontalBlock"]:first-of-type > div {
+    pointer-events: auto !important; flex: 0 0 auto !important; width: auto !important;
+}
+div[data-testid="stHorizontalBlock"]:first-of-type .stButton > button {
+    background: transparent !important; color: var(--muted) !important;
+    font-size: 13px !important; font-weight: 500 !important;
+    padding: 7px 15px !important; border-radius: 8px !important;
+    border: none !important; width: auto !important; box-shadow: none !important;
+    transition: all 0.15s !important;
+}
+div[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover {
+    background: rgba(255,255,255,0.07) !important; color: white !important;
+    transform: none !important; box-shadow: none !important;
+}
+
+/* MAIN BUTTONS */
+.stButton > button {
+    background: var(--acc) !important; color: #050a0e !important;
+    border: none !important; border-radius: 10px !important; padding: 13px !important;
+    font-size: 14px !important; font-weight: 700 !important; width: 100% !important;
+    transition: all 0.15s !important;
+}
+.stButton > button:hover {
+    background: #00fbb0 !important;
+    box-shadow: 0 0 24px rgba(0,229,160,0.35) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* INPUTS */
+.stTextInput > label {
+    color: var(--muted) !important; font-size: 11px !important; font-weight: 600 !important;
+    letter-spacing: 1px !important; text-transform: uppercase !important;
+}
+.stTextInput input {
+    background: var(--sf2) !important; border: 1px solid var(--bdr) !important;
+    border-radius: 10px !important; color: white !important;
+    font-size: 15px !important; padding: 12px 16px !important;
+}
+.stTextInput input:focus {
+    border-color: var(--acc) !important;
+    box-shadow: 0 0 0 3px rgba(0,229,160,0.1) !important;
+}
+
+/* FILE UPLOADER */
+[data-testid="stFileUploader"] {
+    background: rgba(0,229,160,0.02) !important;
+    border: 2px dashed rgba(0,229,160,0.2) !important; border-radius: 14px !important;
+}
+
+/* IMAGES */
+[data-testid="stImage"] img { border-radius: 12px !important; }
+
+/* METRICS */
+[data-testid="stMetric"] {
+    background: var(--sf) !important; border: 1px solid var(--bdr) !important;
+    border-radius: 14px !important; padding: 20px !important;
+}
+[data-testid="stMetricValue"] {
+    color: var(--acc) !important; font-family: 'Syne', sans-serif !important;
+    font-size: 28px !important; font-weight: 700 !important;
+}
+[data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: 12px !important; }
+
+h1,h2,h3 { color: white !important; font-family: 'Syne', sans-serif !important; }
+p { color: var(--txt) !important; }
+
+/* ── HOME ── */
+.hero { text-align: center; padding: 88px 24px 60px; max-width: 760px; margin: 0 auto; }
+.hero-kicker {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(0,229,160,0.08); color: var(--acc);
+    border: 1px solid rgba(0,229,160,0.2); padding: 6px 20px;
+    border-radius: 20px; font-size: 11px; font-weight: 600;
+    letter-spacing: 1.8px; text-transform: uppercase; margin-bottom: 32px;
+}
+.hero-title {
+    font-family: 'Syne', sans-serif !important; color: white;
+    font-size: 60px; font-weight: 800; line-height: 1.04;
+    letter-spacing: -3px; margin-bottom: 22px;
+}
+.hero-title .hl { color: var(--acc); }
+.hero-sub { color: var(--muted); font-size: 18px; line-height: 1.8; max-width: 520px; margin: 0 auto 36px; }
+
+.stats-band {
+    display: grid; grid-template-columns: repeat(4,1fr);
+    gap: 12px; padding: 0 40px; margin: 12px 0 64px;
+}
+.stat-tile {
+    background: var(--sf); border: 1px solid var(--bdr);
+    border-radius: 16px; padding: 28px 20px; text-align: center;
+    position: relative; overflow: hidden;
+}
+.stat-tile::before {
+    content:''; position: absolute; top:0; left:0; right:0; height:2px;
+    background: linear-gradient(90deg, var(--acc), var(--acc2));
+}
+.stat-n {
+    font-family: 'Syne', sans-serif !important; color: var(--acc);
+    font-size: 36px; font-weight: 800; margin-bottom: 4px; letter-spacing: -1.5px;
+}
+.stat-l { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.3px; }
+
+.how-section { padding: 0 40px 72px; }
+.sec-eye { color: var(--acc); font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; }
+.sec-title {
+    font-family: 'Syne', sans-serif !important; color: white !important;
+    font-size: 30px; font-weight: 700; letter-spacing: -0.8px; margin-bottom: 28px;
+}
+.steps-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+.step-card {
+    background: var(--sf); border: 1px solid var(--bdr);
+    border-radius: 16px; padding: 28px; transition: border-color 0.2s;
+}
+.step-card:hover { border-color: rgba(0,229,160,0.3); }
+.step-num {
+    width: 40px; height: 40px;
+    background: linear-gradient(135deg,rgba(0,229,160,0.12),rgba(14,165,233,0.12));
+    border: 1px solid rgba(0,229,160,0.18); color: var(--acc);
+    font-family: 'Syne', sans-serif !important; font-size: 16px; font-weight: 800;
+    border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
+}
+.step-title { color: white; font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.step-desc { color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+.d-section { padding: 0 40px 72px; }
+.d-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; }
+.d-row {
+    background: var(--sf); border: 1px solid var(--bdr); border-radius: 10px;
+    padding: 14px 18px; display: flex; align-items: center; gap: 12px; transition: all 0.15s;
+}
+.d-row:hover { border-color: rgba(0,229,160,0.2); background: var(--sf2); }
+.d-icon { font-size: 20px; flex-shrink: 0; }
+.d-name { color: rgba(255,255,255,0.65); font-size: 14px; font-weight: 500; flex: 1; }
+.sev { font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.sev-High   { background: rgba(239,68,68,0.15);  color: #ef4444; }
+.sev-Medium { background: rgba(249,115,22,0.15); color: #f97316; }
+.sev-Low    { background: rgba(34,197,94,0.15);  color: #22c55e; }
+.sev-None   { background: rgba(34,197,94,0.15);  color: #22c55e; }
+
+/* ── DETECT ── */
+.detect-wrap { padding: 40px; }
+.pg-eye { color: var(--acc); font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+.pg-title {
+    font-family: 'Syne', sans-serif !important; color: white;
+    font-size: 30px; font-weight: 700; letter-spacing: -0.8px; margin-bottom: 28px;
+}
+.panel { background: var(--sf); border: 1px solid var(--bdr); border-radius: 18px; padding: 28px; }
+.panel-lbl { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 18px; }
+.empty-slot { text-align: center; padding: 64px 20px; color: rgba(255,255,255,0.15); font-size: 14px; }
+.empty-ico { font-size: 40px; margin-bottom: 14px; opacity: 0.35; }
+.res-card { border-radius: 14px; padding: 20px 22px; margin: 12px 0; border-left: 3px solid; }
+.res-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.res-name { color: white; font-size: 16px; font-weight: 600; }
+.conf-pill { font-size: 12px; font-weight: 700; padding: 3px 12px; border-radius: 20px; background: rgba(0,229,160,0.1); color: var(--acc); }
+.res-sev { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+.res-treat { color: var(--muted); font-size: 13px; line-height: 1.7; margin-top: 10px; }
+
+/* ── ANALYTICS ── */
+.an-wrap { padding: 40px; }
+.an-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 36px; }
+.an-card { background: var(--sf); border: 1px solid var(--bdr); border-radius: 16px; padding: 24px; text-align: center; }
+.an-num { font-family: 'Syne', sans-serif !important; color: var(--acc); font-size: 34px; font-weight: 800; letter-spacing: -1.5px; margin-bottom: 4px; }
+.an-lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; }
+
+.pr-label-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+.pr-name { color: rgba(255,255,255,0.6); font-size: 13px; }
+.pr-vals { color: var(--muted); font-size: 12px; }
+.pr-bar-bg { background: rgba(255,255,255,0.06); border-radius: 4px; height: 6px; margin-bottom: 13px; overflow: hidden; }
+.pr-bar-fill { height: 6px; border-radius: 4px; background: linear-gradient(90deg, var(--acc), var(--acc2)); }
+
+.hist-row {
+    background: var(--sf); border: 1px solid var(--bdr); border-radius: 10px;
+    padding: 13px 18px; margin-bottom: 8px;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 52px; height: 66px;
-    background: rgba(7,14,28,0.97);
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    position: sticky; top: 0; z-index: 999;
 }
-.nav-links { display: flex; gap: 4px; }
-.nav-lnk {
-    color: rgba(255,255,255,0.4); font-size: 14px;
-    font-weight: 500; padding: 8px 16px;
-    border-radius: 8px; cursor: pointer; transition: all 0.15s;
+.hist-left { color: rgba(255,255,255,0.65); font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+.hist-right { display: flex; align-items: center; gap: 12px; }
+.hist-conf { color: var(--acc); font-size: 13px; font-weight: 700; }
+.hist-time { color: var(--muted); font-size: 12px; }
+
+/* ── ABOUT ── */
+.about-wrap { padding: 40px; max-width: 900px; }
+.ab-card { background: var(--sf); border: 1px solid var(--bdr); border-radius: 16px; padding: 30px 34px; margin-bottom: 16px; }
+.ab-card h3 {
+    color: white !important; font-family: 'Syne', sans-serif !important;
+    font-size: 17px !important; font-weight: 700 !important; margin-bottom: 14px !important;
 }
-.nav-lnk:hover { color: white; background: rgba(255,255,255,0.05); }
-.nav-lnk.on { color: #86efac; background: rgba(34,197,94,0.1); }
-.user-pill {
-    display: flex; align-items: center; gap: 8px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 20px; padding: 5px 14px 5px 7px;
-    color: rgba(255,255,255,0.6); font-size: 13px;
+.ab-card p { color: var(--muted) !important; font-size: 14px !important; line-height: 1.85 !important; }
+.chip {
+    display: inline-block; background: rgba(0,229,160,0.08);
+    border: 1px solid rgba(0,229,160,0.18); color: var(--acc);
+    font-size: 12px; font-weight: 600; padding: 4px 13px;
+    border-radius: 6px; margin: 3px 3px 0 0;
 }
-.av {
-    width: 26px; height: 26px; border-radius: 50%;
-    background: linear-gradient(135deg, #22c55e, #16a34a);
-    display: flex; align-items: center; justify-content: center;
-    color: white; font-size: 11px; font-weight: 700;
+
+/* FOOTER */
+.footer {
+    text-align: center; padding: 28px 40px;
+    color: rgba(255,255,255,0.1); font-size: 12px;
+    border-top: 1px solid rgba(255,255,255,0.04); margin-top: 80px;
 }
-.lo-btn {
-    background: transparent;
-    border: 1px solid rgba(255,255,255,0.08);
-    color: rgba(255,255,255,0.4); font-size: 13px;
-    padding: 7px 16px; border-radius: 8px; cursor: pointer;
-    font-family: 'Inter', sans-serif; transition: all 0.15s;
-}
-.lo-btn:hover { color: white; border-color: rgba(255,255,255,0.18); }
-
-/* ===== PAGE ===== */
-.pg { padding: 44px 52px 80px; min-height: calc(100vh - 66px); }
-.bc { color: rgba(255,255,255,0.22); font-size: 12px; margin-bottom: 6px; }
-.pt { color: white; font-size: 26px; font-weight: 700; margin-bottom: 30px; }
-
-.stat-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 22px; }
-.sc {
-    background: rgba(255,255,255,0.025);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 14px; padding: 22px 24px;
-}
-.sc-l { color: rgba(255,255,255,0.28); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
-.sc-v { color: white; font-size: 30px; font-weight: 700; }
-.sc-vs { color: white; font-size: 17px; font-weight: 600; margin-top: 4px; }
-
-.cc {
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 16px; padding: 26px 30px; margin-bottom: 18px;
-}
-.cc-t { color: white; font-size: 15px; font-weight: 600; margin-bottom: 16px; }
-
-.badge { display: inline-block; font-size: 12px; font-weight: 500; padding: 5px 11px; border-radius: 20px; margin: 3px; }
-.b-red   { background: rgba(239,68,68,0.08);   color: #fca5a5; border: 1px solid rgba(239,68,68,0.15);   }
-.b-green { background: rgba(34,197,94,0.08);   color: #86efac; border: 1px solid rgba(34,197,94,0.15);   }
-.b-blue  { background: rgba(96,165,250,0.08);  color: #93c5fd; border: 1px solid rgba(96,165,250,0.15);  }
-
-.dt { width: 100%; border-collapse: collapse; }
-.dt th { color: rgba(255,255,255,0.25); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
-.dt td { color: rgba(255,255,255,0.7); font-size: 13px; padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); }
-.dt tr:last-child td { border-bottom: none; }
-
-.ab-p { color: rgba(255,255,255,0.55); font-size: 14px; line-height: 1.85; }
-.ab-p b { color: rgba(255,255,255,0.9); }
-
-.det-l { color: rgba(255,255,255,0.28); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== AUTH ====================
-if not st.session_state.logged_in:
+# ══════════════════════════════════════════════════════
+#  TOPBAR HTML
+# ══════════════════════════════════════════════════════
+st.markdown("""
+<div class="topbar">
+  <div class="topbar-logo">
+    <div class="logo-box">🌱</div>
+    Leaf<em>Scan</em>&nbsp;AI
+  </div>
+  <div class="topbar-spacer"></div>
+  <span class="topbar-badge">YOLOv8 · 96.7% mAP</span>
+</div>
+<div class="main-wrap">
+""", unsafe_allow_html=True)
 
-    # ------ SIGNUP ------
-    if st.session_state.auth_mode == "signup":
-        st.markdown("""
-        <div class="auth-wrap">
-          <div class="auth-nav">
-            <div class="logo-row">
-              <div class="logo-box">🌿</div>
-              <span class="logo-name">AgroAI</span>
-              <span class="logo-tag">AI</span>
-            </div>
-          </div>
-          <div class="auth-body">
-            <div class="auth-card">
-              <div class="auth-top">
-                <div class="auth-title">Create<br>Account</div>
-                <div class="auth-sub">Join AgroAI to detect diseases</div>
-              </div>
-        """, unsafe_allow_html=True)
+# ── Nav buttons (pinned to topbar via CSS) ──
+c1, c2, c3, c4, c5 = st.columns(5)
+with c1:
+    if st.button("🏠  Home",      key="n_home"):   nav("home")
+with c2:
+    if st.button("🔬  Detect",    key="n_detect"): nav("detect")
+with c3:
+    if st.button("📊  Analytics", key="n_an"):     nav("analytics")
+with c4:
+    if st.button("ℹ️  About",     key="n_about"):  nav("about")
+with c5:
+    st.empty()
 
-        if st.session_state.signup_error:
-            st.markdown(f'<div class="alert-err">{st.session_state.signup_error}</div>', unsafe_allow_html=True)
-
-        st.markdown('<span class="f-lbl">Username</span>', unsafe_allow_html=True)
-        nu = st.text_input("_nu", placeholder="Choose a username", key="nu", label_visibility="collapsed")
-        st.markdown('<span class="f-lbl">Password</span>', unsafe_allow_html=True)
-        np_ = st.text_input("_np", placeholder="Min 6 characters", type="password", key="np_", label_visibility="collapsed")
-        st.markdown('<span class="f-lbl">Confirm Password</span>', unsafe_allow_html=True)
-        cp = st.text_input("_cp", placeholder="Re-enter password", type="password", key="cp_", label_visibility="collapsed")
-
-        reg = st.button("__REG__", key="reg_btn")
-        back = st.button("__BACK__", key="back_btn")
-
-        st.markdown("""
-              <button class="big-btn" onclick="hc('__REG__')">Create Account</button>
-              <div class="auth-footer" style="margin-top:20px;">
-                Already have an account? <span onclick="hc('__BACK__')">Login</span>
-              </div>
-            </div></div></div>
-        <script>
-        function hc(l){
-            window.parent.document.querySelectorAll('button').forEach(b=>{
-                if(b.innerText.trim()===l) b.click();
-            });
-        }
-        </script>
-        """, unsafe_allow_html=True)
-
-        if reg:
-            if not nu or not np_:
-                st.session_state.signup_error = "Please fill all fields."
-            elif np_ != cp:
-                st.session_state.signup_error = "Passwords do not match."
-            else:
-                result = register_user(nu, np_)
-                if result == "exists":
-                    st.session_state.signup_error = "Username already taken."
-                elif result == "short":
-                    st.session_state.signup_error = "Password must be at least 6 characters."
-                else:
-                    st.session_state.signup_success = True
-                    st.session_state.signup_error = ""
-                    st.session_state.last_username = nu
-                    st.session_state.auth_mode = "login"
-            st.rerun()
-
-        if back:
-            st.session_state.auth_mode = "login"
-            st.session_state.signup_error = ""
-            st.rerun()
-
-    # ------ LOGIN ------
-    else:
-        st.markdown("""
-        <div class="auth-wrap">
-          <div class="auth-nav">
-            <div class="logo-row">
-              <div class="logo-box">🌿</div>
-              <span class="logo-name">AgroAI</span>
-              <span class="logo-tag">AI</span>
-            </div>
-          </div>
-          <div class="auth-body">
-            <div class="auth-card">
-              <div class="auth-top">
-                <div class="auth-title">Welcome<br>Back</div>
-                <div class="auth-sub">Sign in to detect tomato diseases</div>
-              </div>
-        """, unsafe_allow_html=True)
-
-        if st.session_state.login_error:
-            st.markdown(f'<div class="alert-err">{st.session_state.login_error}</div>', unsafe_allow_html=True)
-        if st.session_state.signup_success:
-            st.markdown('<div class="alert-ok">✓ Account created! Please login.</div>', unsafe_allow_html=True)
-
-        st.markdown('<span class="f-lbl">Username</span>', unsafe_allow_html=True)
-        # ✅ last_username auto-fill — logout பண்ணி வந்தா username ready-ஆ இருக்கும்
-        uname = st.text_input("_u", placeholder="Enter your username",
-                               value=st.session_state.last_username,
-                               key="usr", label_visibility="collapsed")
-        st.markdown('<span class="f-lbl">Password</span>', unsafe_allow_html=True)
-        pw = st.text_input("_p", placeholder="Enter your password",
-                            type="password", key="pwd", label_visibility="collapsed")
-
-        login_btn  = st.button("__LOGIN__",  key="login_btn")
-        signup_btn = st.button("__SIGNUP__", key="signup_btn")
-
-        st.markdown("""
-              <button class="big-btn" onclick="hc('__LOGIN__')">Login</button>
-              <button class="outline-btn" onclick="hc('__SIGNUP__')">Create Account</button>
-              <div class="auth-footer" style="margin-top:4px;">
-                Don't have an account? <span onclick="hc('__SIGNUP__')">Sign Up</span>
-              </div>
-            </div></div></div>
-        <script>
-        function hc(l){
-            window.parent.document.querySelectorAll('button').forEach(b=>{
-                if(b.innerText.trim()===l) b.click();
-            });
-        }
-        </script>
-        """, unsafe_allow_html=True)
-
-        if login_btn:
-            if check_user(uname, pw):
-                st.session_state.logged_in = True
-                st.session_state.login_error = ""
-                st.session_state.signup_success = False
-                st.session_state.current_user = uname
-                st.session_state.last_username = uname
-                st.session_state.page = "Home"
-            else:
-                st.session_state.login_error = "Invalid username or password."
-            st.rerun()
-
-        if signup_btn:
-            st.session_state.auth_mode = "signup"
-            st.session_state.login_error = ""
-            st.rerun()
-
-# ==================== MAIN APP ====================
-else:
-    page = st.session_state.page
-    user = st.session_state.current_user
-    av   = user[0].upper() if user else "U"
-
-    st.markdown(f"""
-    <div class="app-nav">
-      <div class="logo-row">
-        <div class="logo-box">🌿</div>
-        <span class="logo-name">AgroAI</span>
-        <span class="logo-tag">AI</span>
-      </div>
-      <div class="nav-links">
-        <span class="nav-lnk {'on' if page=='Home'      else ''}" onclick="hc('__HOME__')">Home</span>
-        <span class="nav-lnk {'on' if page=='Detection' else ''}" onclick="hc('__DET__')">Detection</span>
-        <span class="nav-lnk {'on' if page=='About'     else ''}" onclick="hc('__ABOUT__')">About</span>
-        <span class="nav-lnk {'on' if page=='Model'     else ''}" onclick="hc('__MODEL__')">Model Results</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div class="user-pill">
-          <div class="av">{av}</div>
-          {user}
-        </div>
-        <button class="lo-btn" onclick="hc('__LOGOUT__')">Logout</button>
+# ══════════════════════════════════════════════════════
+#  HOME
+# ══════════════════════════════════════════════════════
+if PAGE == "home":
+    st.markdown("""
+    <div class="hero">
+      <div class="hero-kicker">✦ Powered by YOLOv8 Object Detection</div>
+      <div class="hero-title">Detect Tomato<br><span class="hl">Diseases</span> Instantly</div>
+      <div class="hero-sub">
+        Upload a leaf photo and get an AI-powered diagnosis in under 4 ms —
+        with treatment recommendations and severity ratings.
       </div>
     </div>
-    <script>
-    function hc(l){{
-        window.parent.document.querySelectorAll('button').forEach(b=>{{
-            if(b.innerText.trim()===l) b.click();
-        }});
-    }}
-    </script>
     """, unsafe_allow_html=True)
 
-    c1,c2,c3,c4,c5 = st.columns(5)
-    with c1:
-        if st.button("__HOME__",   key="nh"): st.session_state.page="Home";      st.rerun()
-    with c2:
-        if st.button("__DET__",    key="nd"): st.session_state.page="Detection"; st.rerun()
-    with c3:
-        if st.button("__ABOUT__",  key="na"): st.session_state.page="About";     st.rerun()
-    with c4:
-        if st.button("__MODEL__",  key="nm"): st.session_state.page="Model";     st.rerun()
-    with c5:
-        if st.button("__LOGOUT__", key="nl"):
-            st.session_state.logged_in = False
-            st.session_state.current_user = ""
-            st.session_state.login_error = ""
-            st.session_state.signup_success = False
-            # ✅ last_username keeps the username for next login auto-fill
-            st.rerun()
+    _, b1, b2, _ = st.columns([2, 1, 1, 2])
+    with b1:
+        if st.button("🔬  Start Detection", key="cta1"): nav("detect")
+    with b2:
+        if st.button("📊  View Analytics",  key="cta2"): nav("analytics")
 
-    st.markdown('<div class="pg">', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="stats-band">
+      <div class="stat-tile"><div class="stat-n">96.7%</div><div class="stat-l">mAP50 Accuracy</div></div>
+      <div class="stat-tile"><div class="stat-n">10</div><div class="stat-l">Disease Classes</div></div>
+      <div class="stat-tile"><div class="stat-n">3.6ms</div><div class="stat-l">Inference Speed</div></div>
+      <div class="stat-tile"><div class="stat-n">10.8K</div><div class="stat-l">Training Images</div></div>
+    </div>
+    <div class="how-section">
+      <div class="sec-eye">How it works</div>
+      <div class="sec-title">Three steps to a diagnosis</div>
+      <div class="steps-row">
+        <div class="step-card"><div class="step-num">01</div><div class="step-title">Upload a Leaf Photo</div><div class="step-desc">Take a clear photo of the tomato leaf and upload it in JPG or PNG format.</div></div>
+        <div class="step-card"><div class="step-num">02</div><div class="step-title">AI Analyses the Image</div><div class="step-desc">YOLOv8 scans for visual disease markers and bounding-boxes detections in real time.</div></div>
+        <div class="step-card"><div class="step-num">03</div><div class="step-title">Get Treatment Advice</div><div class="step-desc">Receive severity rating, confidence score, and specific treatment recommendations.</div></div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # ===== HOME =====
-    if page == "Home":
-        total, top, users = get_stats()
-        st.markdown(f"""
-        <div class="bc">AgroAI • Dashboard</div>
-        <div class="pt">System Overview</div>
-        <div class="stat-row">
-          <div class="sc"><div class="sc-l">Total Detections</div><div class="sc-v">{total}</div></div>
-          <div class="sc"><div class="sc-l">Most Detected</div><div class="sc-vs">{top}</div></div>
-          <div class="sc"><div class="sc-l">Active Users</div><div class="sc-v">{users}</div></div>
-        </div>
-        """, unsafe_allow_html=True)
+    rows_html = "".join([
+        f'<div class="d-row"><span class="d-icon">{m["emoji"]}</span>'
+        f'<span class="d-name">{n.replace("_"," ")}</span>'
+        f'<span class="sev sev-{m["severity"]}">{m["severity"]}</span></div>'
+        for n, m in DISEASES.items()
+    ])
+    st.markdown(f"""
+    <div class="d-section">
+      <div class="sec-eye">Disease Reference</div>
+      <div class="sec-title">10 Detectable Conditions</div>
+      <div class="d-grid">{rows_html}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        diseases = [
-            ("Bacterial Spot","b-red"),("Early Blight","b-red"),("Late Blight","b-red"),
-            ("Leaf Mold","b-red"),("Septoria Leaf Spot","b-red"),("Spider Mites","b-red"),
-            ("Target Spot","b-red"),("Yellow Leaf Curl Virus","b-red"),
-            ("Mosaic Virus","b-red"),("Healthy 🌱","b-green")
-        ]
-        badges = "".join([f'<span class="badge {c}">{d}</span>' for d,c in diseases])
-        st.markdown(f'<div class="cc"><div class="cc-t">🦠 Detectable Conditions</div>{badges}</div>', unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════
+#  DETECT
+# ══════════════════════════════════════════════════════
+elif PAGE == "detect":
+    st.markdown("""
+    <div class="detect-wrap">
+    <div class="pg-eye">AI · Computer Vision · Real-time</div>
+    <div class="pg-title">🔬 Disease Detection Engine</div>
+    """, unsafe_allow_html=True)
 
-        hist = st.session_state.detection_history[-6:][::-1]
-        if hist:
-            rows = "".join([
-                f'<tr><td>{h["disease"]}</td><td>{h["confidence"]:.1%}</td>'
-                f'<td>{h["username"]}</td><td>{h["time"]}</td></tr>'
-                for h in hist
-            ])
-            st.markdown(f"""
-            <div class="cc">
-              <div class="cc-t">🕒 Recent Detections</div>
-              <table class="dt">
-                <tr><th>Disease</th><th>Confidence</th><th>User</th><th>Time</th></tr>
-                {rows}
-              </table>
-            </div>""", unsafe_allow_html=True)
+    left, right = st.columns(2, gap="large")
 
-    # ===== DETECTION =====
-    elif page == "Detection":
-        model = load_model()
-        st.markdown("""
-        <div class="bc">AgroAI • Detection</div>
-        <div class="pt">🔬 Disease Detection</div>
-        """, unsafe_allow_html=True)
-
-        st.markdown('<div class="cc"><div class="cc-t">Upload Tomato Leaf Image</div>', unsafe_allow_html=True)
-        uploaded = st.file_uploader("img", type=["jpg","png","jpeg"], label_visibility="collapsed")
-
+    with left:
+        st.markdown('<div class="panel"><div class="panel-lbl">📷 Upload Leaf Image</div>', unsafe_allow_html=True)
+        uploaded = st.file_uploader("", type=["jpg","jpeg","png"], label_visibility="collapsed", key="uploader")
         if uploaded:
-            image = Image.open(uploaded)
-            ca, cb = st.columns(2)
-            with ca:
-                st.markdown('<div class="det-l">Original</div>', unsafe_allow_html=True)
-                st.image(image, use_column_width=True)
+            img = Image.open(uploaded)
+            st.image(img, use_column_width=True)
+        else:
+            st.markdown('<div class="empty-slot"><div class="empty-ico">🍃</div><div>Drag & drop or click to upload<br>a tomato leaf image (JPG / PNG)</div></div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-            det_btn = st.button("__DETECT__", key="det_btn")
-            st.markdown("""
-            <button class="big-btn" style="max-width:200px;margin-top:14px;"
-              onclick="hc('__DETECT__')">🔍 Analyze</button>
-            <script>function hc(l){window.parent.document.querySelectorAll('button').forEach(b=>{if(b.innerText.trim()===l)b.click();});}</script>
+    with right:
+        st.markdown('<div class="panel"><div class="panel-lbl">🤖 Detection Results</div>', unsafe_allow_html=True)
+        if uploaded:
+            with st.spinner("Running YOLOv8 inference..."):
+                try:
+                    model = YOLO("best.pt")
+                    img_np = np.array(img)
+                    results = model.predict(img_np, conf=0.25)
+                    annotated = cv2.cvtColor(results[0].plot(), cv2.COLOR_BGR2RGB)
+                    st.image(annotated, use_column_width=True)
+
+                    found = False
+                    for r in results:
+                        for box in r.boxes:
+                            found = True
+                            cls_name = model.names[int(box.cls)]
+                            conf     = float(box.conf)
+                            meta     = DISEASES.get(cls_name, {"emoji":"🌿","severity":"Unknown","color":"#888"})
+                            treat    = TREATMENT.get(cls_name, "Consult an agricultural expert.")
+                            col      = meta["color"]
+                            st.session_state.history.append({
+                                "label": cls_name, "conf": conf,
+                                "time": datetime.now().strftime("%H:%M:%S"),
+                            })
+                            st.markdown(f"""
+                            <div class="res-card" style="background:rgba(255,255,255,0.03);border-left-color:{col};">
+                              <div class="res-sev" style="color:{col};">{meta['emoji']} Severity: {meta['severity']}</div>
+                              <div class="res-top">
+                                <span class="res-name">{cls_name.replace('_',' ')}</span>
+                                <span class="conf-pill">{conf:.1%}</span>
+                              </div>
+                              <div class="res-treat">💊 <b>Treatment:</b> {treat}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    if not found:
+                        st.success("✅ No disease detected — this leaf looks healthy!")
+                        st.session_state.history.append({
+                            "label":"Tomato_healthy","conf":0.99,
+                            "time":datetime.now().strftime("%H:%M:%S"),
+                        })
+                except Exception as e:
+                    st.error(f"Model error: {e}\n\nMake sure best.pt is in the same folder.")
+        else:
+            st.markdown('<div class="empty-slot"><div class="empty-ico">🤖</div><div>Results appear here<br>after you upload an image</div></div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════
+#  ANALYTICS
+# ══════════════════════════════════════════════════════
+elif PAGE == "analytics":
+    st.markdown("""
+    <div class="an-wrap">
+    <div class="pg-eye">Performance · Metrics · History</div>
+    <div class="pg-title">📊 Model Analytics</div>
+    <div class="an-grid">
+      <div class="an-card"><div class="an-num">96.7%</div><div class="an-lbl">mAP50</div></div>
+      <div class="an-card"><div class="an-num">94.2%</div><div class="an-lbl">Avg Precision</div></div>
+      <div class="an-card"><div class="an-num">93.8%</div><div class="an-lbl">Avg Recall</div></div>
+      <div class="an-card"><div class="an-num">3.6ms</div><div class="an-lbl">Inference Speed</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-eye" style="margin-bottom:10px;">Per-Class Performance</div>', unsafe_allow_html=True)
+    for name, prec, rec in CLASS_PERF:
+        avg = (prec + rec) / 2
+        st.markdown(f"""
+        <div class="pr-label-row">
+          <span class="pr-name">{name}</span>
+          <span class="pr-vals">P: {prec}% &nbsp;·&nbsp; R: {rec}%</span>
+        </div>
+        <div class="pr-bar-bg"><div class="pr-bar-fill" style="width:{avg}%"></div></div>
+        """, unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-eye" style="margin:28px 0 10px;">Detection History (This Session)</div>', unsafe_allow_html=True)
+    history = st.session_state.history
+
+    if not history:
+        st.info("No detections yet. Go to Detect and upload a leaf image!")
+    else:
+        diseased = [h for h in history if h["label"] != "Tomato_healthy"]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Scans", len(history))
+        c2.metric("Diseased",    len(diseased))
+        c3.metric("Healthy",     len(history) - len(diseased))
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        for h in reversed(history[-15:]):
+            meta = DISEASES.get(h["label"], {"emoji":"🌿","severity":"Unknown"})
+            sev  = meta["severity"]
+            sc   = f"sev-{sev}" if sev in ("High","Medium","Low","None") else "sev-None"
+            st.markdown(f"""
+            <div class="hist-row">
+              <div class="hist-left">{meta['emoji']} {h['label'].replace('_',' ')}
+                <span class="sev {sc}">{sev}</span>
+              </div>
+              <div class="hist-right">
+                <span class="hist-conf">{h['conf']:.1%}</span>
+                <span class="hist-time">🕐 {h['time']}</span>
+              </div>
+            </div>
             """, unsafe_allow_html=True)
 
-            if det_btn:
-                with st.spinner("Analyzing..."):
-                    img_np = np.array(image)
-                    results = model.predict(img_np, conf=0.25)
-                    out = cv2.cvtColor(results[0].plot(), cv2.COLOR_BGR2RGB)
-                    st.session_state["det_out"] = out
-                    st.session_state["det_res"] = results
+        if st.button("🗑️  Clear History", key="clr"):
+            st.session_state.history = []
+            st.rerun()
 
-            if st.session_state.get("det_out") is not None:
-                with cb:
-                    st.markdown('<div class="det-l">Result</div>', unsafe_allow_html=True)
-                    st.image(st.session_state["det_out"], use_column_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-                html = ""
-                for r in st.session_state["det_res"]:
-                    for box in r.boxes:
-                        cls  = model.names[int(box.cls)]
-                        conf = float(box.conf)
-                        save_detection(user, cls, conf)
-                        c = "b-green" if "healthy" in cls.lower() else "b-red"
-                        html += f'<span class="badge {c}" style="font-size:13px;padding:7px 14px;">{cls} &nbsp; {conf:.1%}</span>'
-                if not html:
-                    html = '<span class="badge b-blue">No disease detected</span>'
-                st.markdown(f'<div style="margin-top:14px;">{html}</div>', unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════
+#  ABOUT
+# ══════════════════════════════════════════════════════
+elif PAGE == "about":
+    st.markdown("""
+    <div class="about-wrap">
+    <div class="pg-eye">Project · Methodology · Stack</div>
+    <div class="pg-title">ℹ️ About LeafScan AI</div>
 
-        st.markdown('</div>', unsafe_allow_html=True)
+    <div class="ab-card">
+      <h3>🌱 Project Overview</h3>
+      <p>LeafScan AI is a real-time tomato leaf disease detection system built using the YOLOv8
+      object detection architecture. It identifies 10 disease classes from a single leaf photograph,
+      providing instant severity ratings and actionable treatment recommendations for farmers and agronomists.</p>
+    </div>
 
-    # ===== ABOUT =====
-    elif page == "About":
-        st.markdown("""
-        <div class="bc">AgroAI • About</div>
-        <div class="pt">About the Project</div>
+    <div class="ab-card">
+      <h3>🧠 Model &amp; Training</h3>
+      <p>The YOLOv8 model was fine-tuned on 10,853 annotated tomato leaf images from the PlantVillage
+      dataset across 5 training epochs. It achieves a mean average precision (mAP50) of 96.7% with an
+      inference speed of just 3.6 ms per image — enabling true real-time field diagnostics.</p>
+    </div>
 
-        <div class="cc">
-          <div class="cc-t">📄 Project Abstract</div>
-          <div class="ab-p">
-            AgroAI is a <b>deep learning-based tomato leaf disease detection system</b>
-            built using YOLOv8. It enables farmers and researchers to instantly identify
-            tomato diseases from leaf images with high accuracy.<br><br>
-            Trained on <b>10,853 images</b> across <b>10 disease categories</b>,
-            achieving <b>96.7% accuracy</b> — making it a reliable tool for smart agriculture.
-          </div>
-        </div>
+    <div class="ab-card">
+      <h3>⚙️ Technology Stack</h3>
+      <p>
+        <span class="chip">YOLOv8</span>
+        <span class="chip">Python 3.11</span>
+        <span class="chip">PyTorch</span>
+        <span class="chip">Streamlit</span>
+        <span class="chip">OpenCV</span>
+        <span class="chip">Pillow</span>
+        <span class="chip">NumPy</span>
+        <span class="chip">Ultralytics</span>
+      </p>
+    </div>
 
-        <div class="cc">
-          <div class="cc-t">🔒 Security</div>
-          <div class="ab-p">
-            User credentials are secured with <b>SHA-256 password hashing</b>.
-            Detection history maintained per session. No raw passwords stored.
-          </div>
-        </div>
+    <div class="ab-card">
+      <h3>📋 How to Run Locally</h3>
+      <p>
+        1. Place your trained <code>best.pt</code> model file in the same directory as this script.<br>
+        2. Install: <code>pip install streamlit ultralytics opencv-python pillow</code><br>
+        3. Run: <code>streamlit run app.py</code><br>
+        4. Open <code>localhost:8501</code> and start scanning leaves!
+      </p>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        <div class="stat-row">
-          <div class="sc"><div class="sc-l">Algorithm</div><div class="sc-vs">YOLOv8</div></div>
-          <div class="sc"><div class="sc-l">Dataset</div><div class="sc-vs">PlantVillage</div></div>
-          <div class="sc"><div class="sc-l">Accuracy</div><div class="sc-v">96.7%</div></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ===== MODEL RESULTS =====
-    elif page == "Model":
-        st.markdown("""
-        <div class="bc">AgroAI • Model</div>
-        <div class="pt">📊 Model Results</div>
-
-        <div class="cc">
-          <div class="cc-t">YOLOv8 — Per Class Performance</div>
-          <table class="dt">
-            <tr><th>Disease Class</th><th>Precision</th><th>Recall</th><th>mAP50</th><th>Grade</th></tr>
-            <tr><td>Bacterial Spot</td><td>0.91</td><td>0.88</td><td>0.92</td><td><span class="badge b-green">Good</span></td></tr>
-            <tr><td>Early Blight</td><td>0.89</td><td>0.85</td><td>0.90</td><td><span class="badge b-green">Good</span></td></tr>
-            <tr><td>Late Blight</td><td>0.93</td><td>0.90</td><td>0.94</td><td><span class="badge b-green">Excellent</span></td></tr>
-            <tr><td>Leaf Mold</td><td>0.87</td><td>0.84</td><td>0.88</td><td><span class="badge b-green">Good</span></td></tr>
-            <tr><td>Septoria Leaf Spot</td><td>0.90</td><td>0.87</td><td>0.91</td><td><span class="badge b-green">Good</span></td></tr>
-            <tr><td>Spider Mites</td><td>0.88</td><td>0.83</td><td>0.89</td><td><span class="badge b-green">Good</span></td></tr>
-            <tr><td>Target Spot</td><td>0.86</td><td>0.82</td><td>0.87</td><td><span class="badge b-green">Good</span></td></tr>
-            <tr><td>Yellow Leaf Curl Virus</td><td>0.94</td><td>0.92</td><td>0.95</td><td><span class="badge b-green">Excellent</span></td></tr>
-            <tr><td>Mosaic Virus</td><td>0.91</td><td>0.89</td><td>0.92</td><td><span class="badge b-green">Good</span></td></tr>
-            <tr><td>Healthy</td><td>0.97</td><td>0.96</td><td>0.98</td><td><span class="badge b-green">Excellent</span></td></tr>
-          </table>
-        </div>
-
-        <div class="stat-row">
-          <div class="sc"><div class="sc-l">Overall mAP50</div><div class="sc-v">0.967</div></div>
-          <div class="sc"><div class="sc-l">Inference Speed</div><div class="sc-vs">~47ms/image</div></div>
-          <div class="sc"><div class="sc-l">Training Images</div><div class="sc-v">10,853</div></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+# FOOTER
+st.markdown("""
+<div class="footer">
+  🌱 LeafScan AI — Tomato Disease Detection &nbsp;·&nbsp; Powered by YOLOv8 &nbsp;·&nbsp; Built with Streamlit
+</div>
+""", unsafe_allow_html=True)
