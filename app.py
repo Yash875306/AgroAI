@@ -424,37 +424,51 @@ elif PAGE == "detect":
             st.markdown('<div class="empty-box"><div class="empty-icon">+</div><div>Select a JPG or PNG image<br>to begin analysis</div></div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with right:
-        st.markdown('<div class="panel"><div class="panel-title">Detection Results</div>', unsafe_allow_html=True)
-        if uploaded:
+    # Detect button — below both columns
+    if uploaded:
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+        _, btn_c, _ = st.columns([2, 1, 2])
+        with btn_c:
+            detect_clicked = st.button("🔍 Detect Disease", key="detect_btn")
+        if detect_clicked:
             model, err = load_model()
             if err:
                 st.error(f"Model error: {err}")
             else:
                 with st.spinner("Running inference..."):
                     detections, annotated = run_inference(model, img)
+                st.session_state["det_out"]  = annotated
+                st.session_state["det_res"]  = detections
+            st.rerun()
 
-                if annotated is not img:
-                    st.image(annotated, use_column_width=True, caption="Annotated output")
+    with right:
+        st.markdown('<div class="panel"><div class="panel-title">Detection Results</div>', unsafe_allow_html=True)
 
-                for cls_name, conf in detections:
-                    info     = DISEASES.get(cls_name, DISEASES["Tomato_healthy"])
-                    sev      = info["severity"]
-                    bc       = SEV_COLOR.get(sev, "#218a42")
-                    conf_pct = int(conf * 100)
-                    st.markdown(f"""
-                    <div class="result-block" style="border-left-color:{bc};">
-                      <div class="result-name">{info['label']}</div>
-                      <div class="result-conf">Confidence: <strong>{conf_pct}%</strong> &nbsp;&nbsp; <span class="badge {SEV_BADGE[sev]}">{sev}</span></div>
-                      <div class="conf-wrap"><div class="conf-fill" style="width:{conf_pct}%;background:{bc};"></div></div>
-                      <div class="result-label">Symptoms</div><div class="result-value">{info['symptoms']}</div>
-                      <div class="result-label">Treatment</div><div class="result-value">{info['treatment']}</div>
-                      <div class="result-label">Prevention</div><div class="result-value" style="margin-bottom:0">{info['prevention']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    save_detection(info["label"], conf, sev)
+        if st.session_state.get("det_out") is not None and uploaded:
+            annotated  = st.session_state["det_out"]
+            detections = st.session_state["det_res"]
+
+            if annotated is not img:
+                st.image(annotated, use_column_width=True, caption="Annotated output")
+
+            for cls_name, conf in detections:
+                info     = DISEASES.get(cls_name, DISEASES["Tomato_healthy"])
+                sev      = info["severity"]
+                bc       = SEV_COLOR.get(sev, "#218a42")
+                conf_pct = int(conf * 100)
+                st.markdown(f"""
+                <div class="result-block" style="border-left-color:{bc};">
+                  <div class="result-name">{info['label']}</div>
+                  <div class="result-conf">Confidence: <strong>{conf_pct}%</strong> &nbsp;&nbsp; <span class="badge {SEV_BADGE[sev]}">{sev}</span></div>
+                  <div class="conf-wrap"><div class="conf-fill" style="width:{conf_pct}%;background:{bc};"></div></div>
+                  <div class="result-label">Symptoms</div><div class="result-value">{info['symptoms']}</div>
+                  <div class="result-label">Treatment</div><div class="result-value">{info['treatment']}</div>
+                  <div class="result-label">Prevention</div><div class="result-value" style="margin-bottom:0">{info['prevention']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                save_detection(info["label"], conf, sev)
         else:
-            st.markdown('<div class="empty-box"><div class="empty-icon">-</div><div>Results will appear here<br>after uploading an image</div></div>', unsafe_allow_html=True)
+            st.markdown('<div class="empty-box"><div class="empty-icon">-</div><div>Upload an image and click<br><strong>Detect Disease</strong> to begin</div></div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
