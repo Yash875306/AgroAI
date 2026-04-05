@@ -9,6 +9,7 @@ import cv2
 import sqlite3
 from datetime import datetime
 import os
+import pandas as pd
 
 # ======================================
 # PAGE CONFIG
@@ -19,62 +20,49 @@ st.set_page_config(
 )
 
 # ======================================
-# CUSTOM CSS (WHITE + GREEN THEME)
+# PREMIUM CSS
 # ======================================
 st.markdown("""
 <style>
-body {
-    background-color: #f5f7f6;
+body { background-color:#f6f8f7; }
+
+h1, h2, h3 { color:#14532d; }
+
+/* Cards */
+.card {
+    background:white;
+    padding:22px;
+    border-radius:14px;
+    box-shadow:0 4px 14px rgba(0,0,0,0.06);
+    margin-bottom:20px;
 }
 
-.block-container {
-    padding-top: 2rem;
+/* Buttons */
+.stButton>button {
+    background:#16a34a;
+    color:white;
+    border-radius:8px;
+    padding:10px 24px;
+}
+.stButton>button:hover { background:#15803d; }
+
+/* Prediction Card */
+.pred-card {
+    padding:12px;
+    border-radius:10px;
+    border-left:5px solid #16a34a;
+    background:#f0fdf4;
+    margin-bottom:10px;
 }
 
 /* Sidebar */
 section[data-testid="stSidebar"] {
-    background-color: #ffffff;
-    border-right: 1px solid #e5e7eb;
+    background:white;
 }
 
-/* Titles */
-h1, h2, h3 {
-    color: #14532d;
-}
-
-/* Card */
-.card {
-    background: white;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0px 4px 12px rgba(0,0,0,0.06);
-    margin-bottom: 20px;
-}
-
-/* Button */
-.stButton>button {
-    background-color: #16a34a;
-    color: white;
-    border-radius: 8px;
-    padding: 10px 24px;
-    border: none;
-}
-.stButton>button:hover {
-    background-color: #15803d;
-}
-
-/* File uploader */
-[data-testid="stFileUploader"] {
-    border: 2px dashed #16a34a;
-    border-radius: 10px;
-    background: #f0fdf4;
-}
-
-/* Metrics */
-[data-testid="stMetric"] {
-    background: white;
-    border-radius: 10px;
-    padding: 15px;
+/* Table */
+.dataframe {
+    border-radius:10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -155,21 +143,26 @@ st.sidebar.title("AgroAI")
 page = st.sidebar.radio("", ["Home", "Detection", "Results", "About"])
 
 # ======================================
-# HOME
+# HOME (DASHBOARD STYLE)
 # ======================================
 if page == "Home":
-    st.title("Tomato Disease Detection System")
+    st.title("Tomato Disease Detection Dashboard")
+
+    data = get_results()
+
+    total = len(data)
+    avg_conf = (sum(x[1] for x in data) / total) if total else 0
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Scans", total)
+    col2.metric("Average Confidence", f"{avg_conf:.2f}")
+    col3.metric("Model", "YOLOv8")
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.write("""
-    This system uses YOLOv8 deep learning model to detect diseases in tomato leaves.
+    This system detects tomato leaf diseases using YOLOv8 deep learning model.
 
-    It helps farmers and agricultural professionals:
-    - Detect diseases early  
-    - Improve crop yield  
-    - Make data-driven decisions  
-
-    Navigate to the Detection page to start analysis.
+    Upload an image in Detection section to analyze diseases and get insights.
     """)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -179,66 +172,68 @@ if page == "Home":
 elif page == "Detection":
     st.title("Disease Detection")
 
-    uploaded_file = st.file_uploader(
-        "Upload Tomato Leaf Image",
-        type=["jpg", "png", "jpeg"]
-    )
+    uploaded_file = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
 
     if uploaded_file:
         image = Image.open(uploaded_file).convert("RGB")
 
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-
         col1, col2 = st.columns(2)
 
         with col1:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Input Image")
             st.image(image, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Detection Output")
 
             if st.button("Run Detection"):
-
                 if model is None:
-                    st.error("Model file 'best.pt' not found")
+                    st.error("Model not found")
                 else:
-                    with st.spinner("Processing..."):
+                    with st.spinner("Analyzing..."):
                         detections, annotated = run_detection(image)
 
                     st.image(annotated, use_container_width=True)
 
-                    st.markdown("### Predictions")
+                    st.subheader("Predictions")
+
                     for name, conf in detections:
-                        st.write(f"{name} — {conf:.2f}")
+                        st.markdown(f"""
+                        <div class="pred-card">
+                            <strong>{name}</strong><br>
+                            Confidence: {conf:.2f}
+                        </div>
+                        """, unsafe_allow_html=True)
+
                         save_result(name, conf)
 
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
 # ======================================
-# RESULTS
+# RESULTS (WITH ANALYTICS)
 # ======================================
 elif page == "Results":
-    st.title("Detection History")
+    st.title("Detection Analytics")
 
     data = get_results()
 
     if not data:
-        st.info("No records available")
+        st.info("No data available")
     else:
-        total = len(data)
-        avg_conf = sum(x[1] for x in data) / total
+        df = pd.DataFrame(data, columns=["Disease","Confidence","Time"])
 
         col1, col2 = st.columns(2)
-        col1.metric("Total Detections", total)
-        col2.metric("Average Confidence", f"{avg_conf:.2f}")
+        col1.metric("Total Records", len(df))
+        col2.metric("Avg Confidence", f"{df['Confidence'].mean():.2f}")
 
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("### Disease Distribution")
+        st.bar_chart(df["Disease"].value_counts())
 
-        for d in data:
-            st.write(f"{d[0]} | {d[1]:.2f} | {d[2]}")
-
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("### Detection Records")
+        st.dataframe(df, use_container_width=True)
 
 # ======================================
 # ABOUT
@@ -248,15 +243,16 @@ elif page == "About":
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.write("""
-    This project is developed for tomato leaf disease detection using YOLOv8.
+    AgroAI is a deep learning-based tomato disease detection system.
 
     Technologies:
-    - Streamlit
     - YOLOv8 (Ultralytics)
-    - OpenCV
-    - SQLite
+    - Streamlit
+    - OpenCV, NumPy, PIL
+    - SQLite Database
 
-    Purpose:
-    To assist in early disease detection and improve agricultural productivity.
+    Objective:
+    To assist farmers and researchers in early detection of plant diseases
+    using AI-powered image analysis.
     """)
     st.markdown('</div>', unsafe_allow_html=True)
