@@ -79,79 +79,85 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Epilogue:wght@300;400;500;600&display=swap');
 
 :root {
-    --bg:      #050a0e;
-    --sf:      #0c1520;
-    --sf2:     #111d2b;
-    --bdr:     rgba(255,255,255,0.07);
-    --acc:     #00e5a0;
-    --acc2:    #0ea5e9;
-    --txt:     rgba(255,255,255,0.88);
-    --muted:   rgba(255,255,255,0.35);
-    --danger:  #ef4444;
-    --warn:    #f97316;
-    --ok:      #22c55e;
+    --bg:     #050a0e;
+    --sf:     #0c1520;
+    --sf2:    #111d2b;
+    --bdr:    rgba(255,255,255,0.07);
+    --acc:    #00e5a0;
+    --acc2:   #0ea5e9;
+    --txt:    rgba(255,255,255,0.88);
+    --muted:  rgba(255,255,255,0.35);
+    --danger: #ef4444;
+    --warn:   #f97316;
+    --ok:     #22c55e;
 }
 
 *, *::before, *::after { box-sizing: border-box; font-family: 'Epilogue', sans-serif !important; }
 
 .stApp { background: var(--bg) !important; }
-[data-testid="stSidebar"],[data-testid="collapsedControl"],
-[data-testid="stDecoration"],#MainMenu,footer,header {
-    display: none !important; visibility: hidden !important;
-}
+
+/* hide all default Streamlit chrome */
+[data-testid="stSidebar"],
+[data-testid="collapsedControl"],
+[data-testid="stDecoration"],
+[data-testid="stToolbar"],
+#MainMenu, footer, header { display: none !important; visibility: hidden !important; }
+
 .block-container { padding: 0 !important; max-width: 100% !important; }
 section[data-testid="stMain"] > div { padding: 0 !important; }
 
-/* TOPBAR */
+/* ── TOPBAR ── pure HTML element, no Streamlit buttons inside */
 .topbar {
     position: fixed; top: 0; left: 0; right: 0; height: 62px; z-index: 9999;
-    background: rgba(5,10,14,0.96); border-bottom: 1px solid var(--bdr);
-    display: flex; align-items: center; padding: 0 40px;
+    background: rgba(5,10,14,0.97);
+    border-bottom: 1px solid var(--bdr);
+    display: flex; align-items: center; padding: 0 32px; gap: 8px;
     backdrop-filter: blur(24px);
 }
 .topbar-logo {
     font-family: 'Syne', sans-serif !important;
-    font-size: 20px; font-weight: 800; color: white;
-    display: flex; align-items: center; gap: 10px; margin-right: 36px;
+    font-size: 19px; font-weight: 800; color: white;
+    display: flex; align-items: center; gap: 10px;
+    white-space: nowrap; flex-shrink: 0; margin-right: 24px;
 }
 .logo-box {
-    width: 36px; height: 36px;
+    width: 34px; height: 34px; flex-shrink: 0;
     background: linear-gradient(135deg, #00e5a0, #0ea5e9);
-    border-radius: 10px; display: flex; align-items: center;
-    justify-content: center; font-size: 18px;
+    border-radius: 9px; display: flex; align-items: center;
+    justify-content: center; font-size: 17px;
 }
 .topbar-logo em { color: var(--acc); font-style: normal; }
-.topbar-spacer { flex: 1; }
+
+.topbar-nav { display: flex; align-items: center; gap: 2px; }
+.nav-btn {
+    color: var(--muted); font-size: 13px; font-weight: 500;
+    padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    border: none; background: transparent; white-space: nowrap;
+    transition: background 0.15s, color 0.15s; font-family: 'Epilogue', sans-serif;
+    line-height: 1;
+}
+.nav-btn:hover  { background: rgba(255,255,255,0.07); color: white; }
+.nav-btn.active { background: rgba(0,229,160,0.1); color: var(--acc); }
+
+.topbar-spacer { flex: 1; min-width: 8px; }
 .topbar-badge {
     background: rgba(0,229,160,0.1); color: var(--acc);
     border: 1px solid rgba(0,229,160,0.25); font-size: 11px; font-weight: 600;
-    padding: 3px 12px; border-radius: 20px; letter-spacing: 0.8px; text-transform: uppercase;
+    padding: 4px 12px; border-radius: 20px; letter-spacing: 0.8px;
+    text-transform: uppercase; white-space: nowrap; flex-shrink: 0;
 }
+
+/* push all content below the fixed bar */
 .main-wrap { margin-top: 62px; }
 
-/* NAV BUTTONS IN TOPBAR */
-div[data-testid="stHorizontalBlock"]:first-of-type {
-    position: fixed !important; top: 11px !important; left: 0 !important; right: 0 !important;
-    z-index: 10000 !important; padding: 0 200px 0 230px !important;
-    display: flex !important; gap: 2px !important; background: transparent !important;
-    pointer-events: none !important; align-items: center !important;
-}
-div[data-testid="stHorizontalBlock"]:first-of-type > div {
-    pointer-events: auto !important; flex: 0 0 auto !important; width: auto !important;
-}
-div[data-testid="stHorizontalBlock"]:first-of-type .stButton > button {
-    background: transparent !important; color: var(--muted) !important;
-    font-size: 13px !important; font-weight: 500 !important;
-    padding: 7px 15px !important; border-radius: 8px !important;
-    border: none !important; width: auto !important; box-shadow: none !important;
-    transition: all 0.15s !important;
-}
-div[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover {
-    background: rgba(255,255,255,0.07) !important; color: white !important;
-    transform: none !important; box-shadow: none !important;
+/* ── hide the 4 hidden nav buttons from view ── */
+.hidden-nav-row {
+    position: fixed !important; top: -999px !important; left: -999px !important;
+    width: 0 !important; height: 0 !important; overflow: hidden !important;
+    opacity: 0 !important; pointer-events: none !important;
 }
 
-/* MAIN BUTTONS */
+/* ── PAGE CTAs ── */
 .stButton > button {
     background: var(--acc) !important; color: #050a0e !important;
     border: none !important; border-radius: 10px !important; padding: 13px !important;
@@ -164,7 +170,7 @@ div[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover {
     transform: translateY(-1px) !important;
 }
 
-/* INPUTS */
+/* ── INPUTS ── */
 .stTextInput > label {
     color: var(--muted) !important; font-size: 11px !important; font-weight: 600 !important;
     letter-spacing: 1px !important; text-transform: uppercase !important;
@@ -179,16 +185,12 @@ div[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover {
     box-shadow: 0 0 0 3px rgba(0,229,160,0.1) !important;
 }
 
-/* FILE UPLOADER */
 [data-testid="stFileUploader"] {
     background: rgba(0,229,160,0.02) !important;
     border: 2px dashed rgba(0,229,160,0.2) !important; border-radius: 14px !important;
 }
-
-/* IMAGES */
 [data-testid="stImage"] img { border-radius: 12px !important; }
 
-/* METRICS */
 [data-testid="stMetric"] {
     background: var(--sf) !important; border: 1px solid var(--bdr) !important;
     border-radius: 14px !important; padding: 20px !important;
@@ -331,7 +333,6 @@ p { color: var(--txt) !important; }
     border-radius: 6px; margin: 3px 3px 0 0;
 }
 
-/* FOOTER */
 .footer {
     text-align: center; padding: 28px 40px;
     color: rgba(255,255,255,0.1); font-size: 12px;
@@ -341,32 +342,73 @@ p { color: var(--txt) !important; }
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════
-#  TOPBAR HTML
+#  TOPBAR  — pure HTML nav buttons, no Streamlit columns
 # ══════════════════════════════════════════════════════
-st.markdown("""
+def _a(p): return "active" if PAGE == p else ""
+
+st.markdown(f"""
 <div class="topbar">
   <div class="topbar-logo">
     <div class="logo-box">🌱</div>
     Leaf<em>Scan</em>&nbsp;AI
   </div>
+  <div class="topbar-nav">
+    <button class="nav-btn {_a('home')}"      onclick="window._nav('home')">🏠 Home</button>
+    <button class="nav-btn {_a('detect')}"    onclick="window._nav('detect')">🔬 Detect</button>
+    <button class="nav-btn {_a('analytics')}" onclick="window._nav('analytics')">📊 Analytics</button>
+    <button class="nav-btn {_a('about')}"     onclick="window._nav('about')">ℹ️ About</button>
+  </div>
   <div class="topbar-spacer"></div>
   <span class="topbar-badge">YOLOv8 · 96.7% mAP</span>
 </div>
-<div class="main-wrap">
+<div class="main-wrap"></div>
+
+<script>
+window._nav = function(page) {{
+  // find and click the matching hidden Streamlit button
+  const btns = window.parent.document.querySelectorAll('button[data-testid="baseButton-secondary"]');
+  for (const b of btns) {{
+    if (b.innerText.trim() === page) {{ b.click(); return; }}
+  }}
+  // fallback: look inside stButton containers
+  const all = window.parent.document.querySelectorAll('.stButton button');
+  for (const b of all) {{
+    if (b.innerText.trim() === page) {{ b.click(); return; }}
+  }}
+}};
+</script>
 """, unsafe_allow_html=True)
 
-# ── Nav buttons (pinned to topbar via CSS) ──
-c1, c2, c3, c4, c5 = st.columns(5)
-with c1:
-    if st.button("🏠  Home",      key="n_home"):   nav("home")
-with c2:
-    if st.button("🔬  Detect",    key="n_detect"): nav("detect")
-with c3:
-    if st.button("📊  Analytics", key="n_an"):     nav("analytics")
-with c4:
-    if st.button("ℹ️  About",     key="n_about"):  nav("about")
-with c5:
-    st.empty()
+# ── Hidden nav triggers (off-screen, invisible) ──────
+# Wrapped in a container we can hide with CSS
+st.markdown('<div class="hidden-nav-row" id="hidden-nav">', unsafe_allow_html=True)
+_c = st.columns(4)
+with _c[0]:
+    if st.button("home",      key="_nh"):  nav("home")
+with _c[1]:
+    if st.button("detect",    key="_nd"):  nav("detect")
+with _c[2]:
+    if st.button("analytics", key="_na"):  nav("analytics")
+with _c[3]:
+    if st.button("about",     key="_nb"):  nav("about")
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Move that column row off-screen via nth-child targeting
+st.markdown("""
+<style>
+/* The first stHorizontalBlock after our topbar is the hidden nav row */
+section[data-testid="stMain"] [data-testid="stHorizontalBlock"]:first-of-type {
+    position: fixed !important;
+    top: 14px !important;
+    left: 0 !important; right: 0 !important;
+    z-index: 10001 !important;
+    width: 0 !important; height: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════
 #  HOME
@@ -438,7 +480,7 @@ elif PAGE == "detect":
         uploaded = st.file_uploader("", type=["jpg","jpeg","png"], label_visibility="collapsed", key="uploader")
         if uploaded:
             img = Image.open(uploaded)
-            st.image(img, use_column_width=True)
+            st.image(img, use_container_width=True)
         else:
             st.markdown('<div class="empty-slot"><div class="empty-ico">🍃</div><div>Drag & drop or click to upload<br>a tomato leaf image (JPG / PNG)</div></div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -452,7 +494,7 @@ elif PAGE == "detect":
                     img_np = np.array(img)
                     results = model.predict(img_np, conf=0.25)
                     annotated = cv2.cvtColor(results[0].plot(), cv2.COLOR_BGR2RGB)
-                    st.image(annotated, use_column_width=True)
+                    st.image(annotated, use_container_width=True)
 
                     found = False
                     for r in results:
