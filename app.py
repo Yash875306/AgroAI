@@ -19,6 +19,67 @@ st.set_page_config(
 )
 
 # ======================================
+# CUSTOM CSS (WHITE + GREEN THEME)
+# ======================================
+st.markdown("""
+<style>
+body {
+    background-color: #f5f7f6;
+}
+
+.block-container {
+    padding-top: 2rem;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background-color: #ffffff;
+    border-right: 1px solid #e5e7eb;
+}
+
+/* Titles */
+h1, h2, h3 {
+    color: #14532d;
+}
+
+/* Card */
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0px 4px 12px rgba(0,0,0,0.06);
+    margin-bottom: 20px;
+}
+
+/* Button */
+.stButton>button {
+    background-color: #16a34a;
+    color: white;
+    border-radius: 8px;
+    padding: 10px 24px;
+    border: none;
+}
+.stButton>button:hover {
+    background-color: #15803d;
+}
+
+/* File uploader */
+[data-testid="stFileUploader"] {
+    border: 2px dashed #16a34a;
+    border-radius: 10px;
+    background: #f0fdf4;
+}
+
+/* Metrics */
+[data-testid="stMetric"] {
+    background: white;
+    border-radius: 10px;
+    padding: 15px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ======================================
 # DATABASE
 # ======================================
 DB = "agroai.db"
@@ -56,7 +117,7 @@ def get_results():
 init_db()
 
 # ======================================
-# MODEL (CACHED)
+# MODEL
 # ======================================
 @st.cache_resource
 def load_model():
@@ -67,7 +128,7 @@ def load_model():
 model = load_model()
 
 # ======================================
-# INFERENCE
+# DETECTION FUNCTION
 # ======================================
 def run_detection(image):
     arr = np.array(image)
@@ -91,10 +152,7 @@ def run_detection(image):
 # SIDEBAR NAVIGATION
 # ======================================
 st.sidebar.title("AgroAI")
-page = st.sidebar.radio(
-    "Navigation",
-    ["Home", "Detection", "Results", "About"]
-)
+page = st.sidebar.radio("", ["Home", "Detection", "Results", "About"])
 
 # ======================================
 # HOME
@@ -102,17 +160,18 @@ page = st.sidebar.radio(
 if page == "Home":
     st.title("Tomato Disease Detection System")
 
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.write("""
-    This application uses a YOLOv8 deep learning model to detect and classify
-    diseases in tomato leaves.
+    This system uses YOLOv8 deep learning model to detect diseases in tomato leaves.
 
-    The system helps in:
-    - Early disease identification  
-    - Improving crop productivity  
-    - Supporting smart agriculture  
+    It helps farmers and agricultural professionals:
+    - Detect diseases early  
+    - Improve crop yield  
+    - Make data-driven decisions  
 
-    Upload an image in the Detection section to begin analysis.
+    Navigate to the Detection page to start analysis.
     """)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ======================================
 # DETECTION
@@ -121,12 +180,14 @@ elif page == "Detection":
     st.title("Disease Detection")
 
     uploaded_file = st.file_uploader(
-        "Upload a tomato leaf image",
+        "Upload Tomato Leaf Image",
         type=["jpg", "png", "jpeg"]
     )
 
     if uploaded_file:
         image = Image.open(uploaded_file).convert("RGB")
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
 
         col1, col2 = st.columns(2)
 
@@ -135,21 +196,24 @@ elif page == "Detection":
             st.image(image, use_container_width=True)
 
         with col2:
+            st.subheader("Detection Output")
+
             if st.button("Run Detection"):
 
                 if model is None:
-                    st.error("Model file 'best.pt' not found.")
+                    st.error("Model file 'best.pt' not found")
                 else:
-                    with st.spinner("Running detection..."):
+                    with st.spinner("Processing..."):
                         detections, annotated = run_detection(image)
 
-                    st.subheader("Detection Output")
                     st.image(annotated, use_container_width=True)
 
-                    st.subheader("Predictions")
+                    st.markdown("### Predictions")
                     for name, conf in detections:
-                        st.write(f"{name} — Confidence: {conf:.2f}")
+                        st.write(f"{name} — {conf:.2f}")
                         save_result(name, conf)
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ======================================
 # RESULTS
@@ -157,13 +221,24 @@ elif page == "Detection":
 elif page == "Results":
     st.title("Detection History")
 
-    results = get_results()
+    data = get_results()
 
-    if not results:
-        st.info("No detection records available.")
+    if not data:
+        st.info("No records available")
     else:
-        for disease, conf, time in results:
-            st.write(f"{disease} | {conf:.2f} | {time}")
+        total = len(data)
+        avg_conf = sum(x[1] for x in data) / total
+
+        col1, col2 = st.columns(2)
+        col1.metric("Total Detections", total)
+        col2.metric("Average Confidence", f"{avg_conf:.2f}")
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+
+        for d in data:
+            st.write(f"{d[0]} | {d[1]:.2f} | {d[2]}")
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ======================================
 # ABOUT
@@ -171,16 +246,17 @@ elif page == "Results":
 elif page == "About":
     st.title("About Project")
 
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.write("""
-    This project is developed as part of a final year academic project.
+    This project is developed for tomato leaf disease detection using YOLOv8.
 
-    Technologies used:
-    - Streamlit for frontend
-    - YOLOv8 (Ultralytics) for detection
-    - OpenCV and PIL for image processing
-    - SQLite for storing detection results
+    Technologies:
+    - Streamlit
+    - YOLOv8 (Ultralytics)
+    - OpenCV
+    - SQLite
 
-    Objective:
-    To detect tomato leaf diseases using deep learning and assist
-    in precision agriculture.
+    Purpose:
+    To assist in early disease detection and improve agricultural productivity.
     """)
+    st.markdown('</div>', unsafe_allow_html=True)
