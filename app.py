@@ -1,226 +1,245 @@
+# =====================================
+# IMPORTS
+# =====================================
 import streamlit as st
+import sqlite3
+import bcrypt
 from ultralytics import YOLO
 from PIL import Image
 import numpy as np
-import hashlib
-import json
 import os
 
-# ================= CONFIG =================
-st.set_page_config(page_title="AgroAI", layout="wide")
+# =====================================
+# PAGE CONFIG
+# =====================================
+st.set_page_config(
+    page_title="Tomato Disease Detection",
+    layout="wide"
+)
 
-# ================= CSS =================
+# =====================================
+# DARK THEME CSS
+# =====================================
 st.markdown("""
 <style>
-.stApp {
-    background: #0b1120;
+.block-container {
+    padding-top: 2rem;
 }
 
-/* Center card */
 .card {
-    background: #111827;
-    padding: 40px;
+    background-color: #161b22;
+    padding: 2rem;
     border-radius: 12px;
-    width: 400px;
+    width: 380px;
     margin: auto;
-    margin-top: 100px;
-    box-shadow: 0 0 20px rgba(0,0,0,0.4);
+    box-shadow: 0px 0px 20px rgba(0,0,0,0.6);
 }
 
-.title {
-    text-align: center;
-    color: white;
-    font-size: 28px;
-    font-weight: 600;
-    margin-bottom: 20px;
-}
-
-.stTextInput input {
-    background: #1f2937;
-    color: white;
-    border-radius: 8px;
-}
-
-.stButton button {
-    background: #2563eb;
-    color: white;
-    border-radius: 8px;
-    height: 40px;
-    width: 100%;
-}
-
-/* Navbar */
-.nav {
-    display: flex;
-    justify-content: space-around;
-    background: #111827;
-    padding: 10px;
+.navbar {
+    background-color: #161b22;
+    padding: 1rem;
     border-radius: 10px;
     margin-bottom: 20px;
+}
+
+button {
+    width: 100%;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ================= FILE STORAGE =================
-USER_FILE = "users.json"
+# =====================================
+# DATABASE (CLOUD SAFE)
+# =====================================
+DB_PATH = "database.db"
 
-def load_users():
-    if os.path.exists(USER_FILE):
-        with open(USER_FILE, "r") as f:
-            return json.load(f)
-    return {}
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+c = conn.cursor()
 
-def save_users(users):
-    with open(USER_FILE, "w") as f:
-        json.dump(users, f)
+def create_table():
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password BLOB
+        )
+    """)
+    conn.commit()
 
-def hash_pw(p):
-    return hashlib.sha256(p.encode()).hexdigest()
+create_table()
 
-# ================= SESSION =================
+# =====================================
+# AUTH FUNCTIONS
+# =====================================
+def hash_password(password):
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+
+def verify_password(password, hashed):
+    return bcrypt.checkpw(password.encode(), hashed)
+
+def add_user(username, password):
+    c.execute("INSERT INTO users VALUES (?, ?)", (username, hash_password(password)))
+    conn.commit()
+
+def login_user(username, password):
+    c.execute("SELECT * FROM users WHERE username=?", (username,))
+    data = c.fetchone()
+    if data and verify_password(password, data[1]):
+        return True
+    return False
+
+# =====================================
+# LOAD YOLO MODEL (IMPORTANT FOR CLOUD)
+# =====================================
+@st.cache_resource
+def load_model():
+    return YOLO("best.pt")  # MUST be in repo
+
+# Lazy load (prevents crash if not needed yet)
+model = None
+
+# =====================================
+# SESSION STATE
+# =====================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-if "username" not in st.session_state:
-    st.session_state.username = ""
-
 if "page" not in st.session_state:
-    st.session_state.page = "login"
+    st.session_state.page = "Home"
 
-def go(p):
-    st.session_state.page = p
-    st.rerun()
-
-# ================= LOAD MODEL =================
-@st.cache_resource
-def load_model():
-    return YOLO("best.pt")
-
-model = load_model()
-
-# ================= NAV =================
-if st.session_state.logged_in:
-    st.markdown('<div class="nav">', unsafe_allow_html=True)
+# =====================================
+# NAVBAR
+# =====================================
+def navbar():
+    st.markdown('<div class="navbar">', unsafe_allow_html=True)
 
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        if st.button("Home"): go("home")
-    with col2:
-        if st.button("Detection"): go("detect")
-    with col3:
-        if st.button("About"): go("about")
-    with col4:
-        if st.button("Logout"):
-            st.session_state.logged_in = False
-            st.session_state.username = ""
-            go("login")
+
+    if col1.button("Home"):
+        st.session_state.page = "Home"
+
+    if col2.button("Detection"):
+        st.session_state.page = "Detection"
+
+    if col3.button("About"):
+        st.session_state.page = "About"
+
+    if col4.button("Logout"):
+        st.session_state.logged_in = False
+        st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ============================================================
-# LOGIN
-# ============================================================
-if st.session_state.page == "login":
-    users = load_users()  # 🔥 IMPORTANT FIX
-
+# =====================================
+# AUTH PAGE
+# =====================================
+def auth_page():
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="title">Login</div>', unsafe_allow_html=True)
 
-    user = st.text_input("Username")
-    pw = st.text_input("Password", type="password")
+    option = st.radio("Select", ["Login", "Signup"])
 
-    if st.button("Login"):
-        if user in users and users[user] == hash_pw(pw):
-            st.session_state.logged_in = True
-            st.session_state.username = user
-            go("home")
-        else:
-            st.error("Invalid credentials")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
-    if st.button("Create account"):
-        go("signup")
+    if option == "Signup":
+        if st.button("Create Account"):
+            try:
+                add_user(username, password)
+                st.success("Account created successfully")
+            except:
+                st.error("Username already exists")
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ============================================================
-# SIGNUP
-# ============================================================
-elif st.session_state.page == "signup":
-    users = load_users()  # 🔥 IMPORTANT
-
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="title">Create Account</div>', unsafe_allow_html=True)
-
-    user = st.text_input("Username")
-    pw = st.text_input("Password", type="password")
-
-    if st.button("Sign Up"):
-        if user in users:
-            st.error("User already exists")
-        else:
-            users[user] = hash_pw(pw)
-            save_users(users)
-            st.success("Account created")
-            go("login")
-
-    if st.button("Back to login"):
-        go("login")
+    if option == "Login":
+        if st.button("Login"):
+            if login_user(username, password):
+                st.session_state.logged_in = True
+                st.success("Login successful")
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ============================================================
-# HOME
-# ============================================================
-elif st.session_state.page == "home":
-    st.markdown(f"""
-    <h2 style='text-align:center;color:white'>
-    Welcome {st.session_state.username}
-    </h2>
-    <p style='text-align:center;color:gray'>
-    Tomato disease detection system using YOLOv8
-    </p>
-    """, unsafe_allow_html=True)
+# =====================================
+# HOME PAGE
+# =====================================
+def home_page():
+    st.title("Tomato Disease Detection System")
 
-# ============================================================
-# DETECTION
-# ============================================================
-elif st.session_state.page == "detect":
+    st.write("""
+    This application uses YOLOv8 deep learning model to detect tomato leaf diseases.
+
+    Features:
+    - Image-based detection
+    - Fast and accurate predictions
+    - User authentication system
+
+    Use this tool to identify diseases early and improve crop yield.
+    """)
+
+# =====================================
+# DETECTION PAGE
+# =====================================
+def detection_page():
+    global model
+
     st.title("Detection")
 
-    uploaded = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
+    uploaded_file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
 
-    if uploaded:
-        img = Image.open(uploaded)
+    if uploaded_file:
+        image = Image.open(uploaded_file).convert("RGB")
 
-        col1, col2, col3 = st.columns([1,2,1])
-        with col2:
-            st.image(img, width=400)
+        st.image(image, width=300)
 
         if st.button("Run Detection"):
-            img_np = np.array(img)
 
-            with st.spinner("Processing..."):
-                results = model(img_np)
+            if model is None:
+                with st.spinner("Loading model..."):
+                    model = load_model()
 
-            plotted = results[0].plot()
+            results = model(image)
 
-            col1, col2, col3 = st.columns([1,2,1])
-            with col2:
-                st.image(plotted, width=400)
+            result_img = results[0].plot()
 
-            names = results[0].names
-            boxes = results[0].boxes
+            st.image(result_img, width=500)
 
-            if boxes is not None:
-                classes = boxes.cls.cpu().numpy()
-                detected = [names[int(c)] for c in classes]
+            st.subheader("Predictions")
 
-                st.success(", ".join(set(detected)))
+            for box in results[0].boxes:
+                cls_id = int(box.cls[0])
+                conf = float(box.conf[0])
+                st.write(f"{model.names[cls_id]} - {conf:.2f}")
 
-# ============================================================
-# ABOUT
-# ============================================================
-elif st.session_state.page == "about":
+# =====================================
+# ABOUT PAGE
+# =====================================
+def about_page():
     st.title("About")
-    st.write("AgroAI - Final Year Project")
-    st.write("YOLOv8 based plant disease detection system")
+
+    st.write("""
+    Final Year Project
+
+    Technologies Used:
+    - Streamlit
+    - YOLOv8 (Ultralytics)
+    - SQLite
+
+    This system helps detect tomato plant diseases using AI.
+    """)
+
+# =====================================
+# MAIN
+# =====================================
+if not st.session_state.logged_in:
+    auth_page()
+else:
+    navbar()
+
+    if st.session_state.page == "Home":
+        home_page()
+
+    elif st.session_state.page == "Detection":
+        detection_page()
+
+    elif st.session_state.page == "About":
+        about_page()
