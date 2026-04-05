@@ -9,31 +9,59 @@ import os
 # ================= CONFIG =================
 st.set_page_config(page_title="AgroAI", layout="wide")
 
-# ================= CSS (PRO UI) =================
+# ================= CSS =================
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(135deg, #0f172a, #020617);
+    background: #0b1120;
 }
-h1,h2,h3,h4,p {
+
+/* Center card */
+.card {
+    background: #111827;
+    padding: 40px;
+    border-radius: 12px;
+    width: 400px;
+    margin: auto;
+    margin-top: 100px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.4);
+}
+
+.title {
     text-align: center;
     color: white;
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 20px;
 }
-.stButton button {
-    background: linear-gradient(90deg, #3b82f6, #6366f1);
-    color: white;
-    border-radius: 10px;
-    height: 45px;
-    font-weight: bold;
-}
+
 .stTextInput input {
-    border-radius: 10px;
+    background: #1f2937;
+    color: white;
+    border-radius: 8px;
+}
+
+.stButton button {
+    background: #2563eb;
+    color: white;
+    border-radius: 8px;
+    height: 40px;
+    width: 100%;
+}
+
+/* Navbar */
+.nav {
+    display: flex;
+    justify-content: space-around;
+    background: #111827;
     padding: 10px;
+    border-radius: 10px;
+    margin-bottom: 20px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ================= USER STORAGE =================
+# ================= FILE STORAGE =================
 USER_FILE = "users.json"
 
 def load_users():
@@ -48,8 +76,6 @@ def save_users(users):
 
 def hash_pw(p):
     return hashlib.sha256(p.encode()).hexdigest()
-
-users = load_users()
 
 # ================= SESSION =================
 if "logged_in" not in st.session_state:
@@ -68,12 +94,14 @@ def go(p):
 # ================= LOAD MODEL =================
 @st.cache_resource
 def load_model():
-    return YOLO("best.pt")   # make sure best.pt is present
+    return YOLO("best.pt")
 
 model = load_model()
 
 # ================= NAV =================
 if st.session_state.logged_in:
+    st.markdown('<div class="nav">', unsafe_allow_html=True)
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         if st.button("Home"): go("home")
@@ -84,13 +112,19 @@ if st.session_state.logged_in:
     with col4:
         if st.button("Logout"):
             st.session_state.logged_in = False
+            st.session_state.username = ""
             go("login")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
 # LOGIN
 # ============================================================
 if st.session_state.page == "login":
-    st.title("🔐 Login")
+    users = load_users()  # 🔥 IMPORTANT FIX
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">Login</div>', unsafe_allow_html=True)
 
     user = st.text_input("Username")
     pw = st.text_input("Password", type="password")
@@ -103,36 +137,47 @@ if st.session_state.page == "login":
         else:
             st.error("Invalid credentials")
 
-    if st.button("Go to Signup"):
+    if st.button("Create account"):
         go("signup")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
 # SIGNUP
 # ============================================================
 elif st.session_state.page == "signup":
-    st.title("📝 Create Account")
+    users = load_users()  # 🔥 IMPORTANT
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">Create Account</div>', unsafe_allow_html=True)
 
     user = st.text_input("Username")
     pw = st.text_input("Password", type="password")
 
-    if st.button("Create Account"):
+    if st.button("Sign Up"):
         if user in users:
             st.error("User already exists")
         else:
             users[user] = hash_pw(pw)
             save_users(users)
-            st.success("Account created successfully ✅")
+            st.success("Account created")
             go("login")
+
+    if st.button("Back to login"):
+        go("login")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
 # HOME
 # ============================================================
 elif st.session_state.page == "home":
     st.markdown(f"""
-    <h1>🌿 AgroAI</h1>
-    <h3>Welcome {st.session_state.username} 👋</h3>
-    <p style='color:gray'>
-    AI-powered Tomato Disease Detection using YOLOv8
+    <h2 style='text-align:center;color:white'>
+    Welcome {st.session_state.username}
+    </h2>
+    <p style='text-align:center;color:gray'>
+    Tomato disease detection system using YOLOv8
     </p>
     """, unsafe_allow_html=True)
 
@@ -140,28 +185,28 @@ elif st.session_state.page == "home":
 # DETECTION
 # ============================================================
 elif st.session_state.page == "detect":
-    st.title("🌿 Tomato Disease Detection")
+    st.title("Detection")
 
-    uploaded = st.file_uploader("Upload Leaf Image", type=["jpg","png","jpeg"])
+    uploaded = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
 
     if uploaded:
         img = Image.open(uploaded)
 
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
-            st.image(img, width=450)
+            st.image(img, width=400)
 
         if st.button("Run Detection"):
             img_np = np.array(img)
 
-            with st.spinner("Detecting..."):
+            with st.spinner("Processing..."):
                 results = model(img_np)
 
             plotted = results[0].plot()
 
             col1, col2, col3 = st.columns([1,2,1])
             with col2:
-                st.image(plotted, width=450)
+                st.image(plotted, width=400)
 
             names = results[0].names
             boxes = results[0].boxes
@@ -170,16 +215,12 @@ elif st.session_state.page == "detect":
                 classes = boxes.cls.cpu().numpy()
                 detected = [names[int(c)] for c in classes]
 
-                st.success("Detected: " + ", ".join(set(detected)))
-
-                for box in boxes:
-                    conf = float(box.conf[0])
-                    st.write(f"Confidence: {conf:.2f}")
+                st.success(", ".join(set(detected)))
 
 # ============================================================
 # ABOUT
 # ============================================================
 elif st.session_state.page == "about":
-    st.title("📌 About Project")
-    st.write("Final Year Project - AgroAI 🌿")
-    st.write("YOLOv8 based Tomato Disease Detection System")
+    st.title("About")
+    st.write("AgroAI - Final Year Project")
+    st.write("YOLOv8 based plant disease detection system")
