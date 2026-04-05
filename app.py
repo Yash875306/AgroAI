@@ -1,3 +1,6 @@
+# ======================================
+# IMPORTS
+# ======================================
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
@@ -5,32 +8,61 @@ import numpy as np
 import cv2
 import sqlite3
 from datetime import datetime
-import pandas as pd
 import os
-from report import generate_report
+import pandas as pd
 
 # ======================================
-# CONFIG
+# PAGE CONFIG
 # ======================================
-st.set_page_config(page_title="AgroAI", layout="wide")
+st.set_page_config(
+    page_title="AgroAI - Tomato Disease Detection",
+    layout="wide"
+)
 
 # ======================================
-# PREMIUM UI
+# PREMIUM CSS
 # ======================================
 st.markdown("""
 <style>
-body { background:#f6f8f7; }
+body { background-color:#f6f8f7; }
+
+h1, h2, h3 { color:#14532d; }
+
+/* Cards */
 .card {
     background:white;
-    padding:20px;
-    border-radius:12px;
-    box-shadow:0 4px 12px rgba(0,0,0,0.05);
+    padding:22px;
+    border-radius:14px;
+    box-shadow:0 4px 14px rgba(0,0,0,0.06);
     margin-bottom:20px;
 }
+
+/* Buttons */
 .stButton>button {
     background:#16a34a;
     color:white;
     border-radius:8px;
+    padding:10px 24px;
+}
+.stButton>button:hover { background:#15803d; }
+
+/* Prediction Card */
+.pred-card {
+    padding:12px;
+    border-radius:10px;
+    border-left:5px solid #16a34a;
+    background:#f0fdf4;
+    margin-bottom:10px;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background:white;
+}
+
+/* Table */
+.dataframe {
+    border-radius:10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -38,145 +70,189 @@ body { background:#f6f8f7; }
 # ======================================
 # DATABASE
 # ======================================
-conn = sqlite3.connect("data.db", check_same_thread=False)
-c = conn.cursor()
+DB = "agroai.db"
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS detections (
-disease TEXT, confidence REAL, time TEXT)
-""")
-
-def save(d, cval):
-    c.execute("INSERT INTO detections VALUES (?,?,?)",
-              (d, cval, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+def init_db():
+    conn = sqlite3.connect(DB)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS detections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            disease TEXT,
+            confidence REAL,
+            timestamp TEXT
+        )
+    """)
     conn.commit()
+    conn.close()
 
-def fetch():
-    return c.execute("SELECT * FROM detections").fetchall()
+def save_result(disease, confidence):
+    conn = sqlite3.connect(DB)
+    conn.execute(
+        "INSERT INTO detections (disease, confidence, timestamp) VALUES (?, ?, ?)",
+        (disease, confidence, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    )
+    conn.commit()
+    conn.close()
+
+def get_results():
+    conn = sqlite3.connect(DB)
+    rows = conn.execute(
+        "SELECT disease, confidence, timestamp FROM detections ORDER BY id DESC"
+    ).fetchall()
+    conn.close()
+    return rows
+
+init_db()
 
 # ======================================
 # MODEL
 # ======================================
 @st.cache_resource
 def load_model():
+    if not os.path.exists("best.pt"):
+        return None
     return YOLO("best.pt")
 
 model = load_model()
 
-def detect(img):
-    arr = np.array(img)
-    res = model.predict(arr, conf=0.25)
-    r = res[0]
+# ======================================
+# DETECTION FUNCTION
+# ======================================
+def run_detection(image):
+    arr = np.array(image)
+    results = model.predict(arr, conf=0.25, verbose=False)
+    r = results[0]
 
-    out = img
-    det = []
+    detections = []
+    annotated = image
 
-    if r.boxes:
-        out = Image.fromarray(cv2.cvtColor(r.plot(), cv2.COLOR_BGR2RGB))
-        for b in r.boxes:
-            det.append((model.names[int(b.cls)], float(b.conf)))
+    if r.boxes and len(r.boxes):
+        annotated = Image.fromarray(cv2.cvtColor(r.plot(), cv2.COLOR_BGR2RGB))
+        for box in r.boxes:
+            detections.append((
+                model.names[int(box.cls.item())],
+                float(box.conf.item())
+            ))
 
-    return det or [("Healthy",1.0)], out
+    return detections or [("Healthy", 1.0)], annotated
 
 # ======================================
-# NAVIGATION
+# SIDEBAR NAVIGATION
 # ======================================
-page = st.sidebar.radio("Menu", ["Home","Detection","Live Camera","Results","About"])
+st.sidebar.title("AgroAI")
+page = st.sidebar.radio("", ["Home", "Detection", "Results", "About"])
 
 # ======================================
-# HOME
+# HOME (DASHBOARD STYLE)
 # ======================================
 if page == "Home":
-    st.title("AgroAI Dashboard")
+    st.title("Tomato Disease Detection Dashboard")
 
-    data = fetch()
+    data = get_results()
+
     total = len(data)
+    avg_conf = (sum(x[1] for x in data) / total) if total else 0
 
-    col1,col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Total Scans", total)
-    col2.metric("Model","YOLOv8")
+    col2.metric("Average Confidence", f"{avg_conf:.2f}")
+    col3.metric("Model", "YOLOv8")
 
-    st.markdown('<div class="card">AI-based tomato disease detection system.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.write("""
+    This system detects tomato leaf diseases using YOLOv8 deep learning model.
+
+    Upload an image in Detection section to analyze diseases and get insights.
+    """)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ======================================
 # DETECTION
 # ======================================
 elif page == "Detection":
-    st.title("Image Detection")
+    st.title("Disease Detection")
 
-    file = st.file_uploader("Upload Image")
+    uploaded_file = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
 
-    if file:
-        img = Image.open(file)
+    if uploaded_file:
+        image = Image.open(uploaded_file).convert("RGB")
 
-        c1,c2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-        with c1:
-            st.image(img)
+        with col1:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Input Image")
+            st.image(image, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        with c2:
+        with col2:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("Detection Output")
+
             if st.button("Run Detection"):
-                det, out = detect(img)
-                st.image(out)
+                if model is None:
+                    st.error("Model not found")
+                else:
+                    with st.spinner("Analyzing..."):
+                        detections, annotated = run_detection(image)
 
-                for d in det:
-                    st.write(d)
-                    save(d[0], d[1])
+                    st.image(annotated, use_container_width=True)
 
-                # PDF
-                if st.button("Download Report"):
-                    generate_report("report.pdf", det)
-                    with open("report.pdf","rb") as f:
-                        st.download_button("Download", f, file_name="report.pdf")
+                    st.subheader("Predictions")
 
-# ======================================
-# LIVE CAMERA
-# ======================================
-elif page == "Live Camera":
-    st.title("Live Camera Detection")
+                    for name, conf in detections:
+                        st.markdown(f"""
+                        <div class="pred-card">
+                            <strong>{name}</strong><br>
+                            Confidence: {conf:.2f}
+                        </div>
+                        """, unsafe_allow_html=True)
 
-    run = st.checkbox("Start Camera")
+                        save_result(name, conf)
 
-    frame = st.empty()
-
-    cap = cv2.VideoCapture(0)
-
-    while run:
-        ret, img = cap.read()
-        if not ret:
-            break
-
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        pil = Image.fromarray(rgb)
-
-        det, out = detect(pil)
-        frame.image(out)
-
-    cap.release()
+            st.markdown('</div>', unsafe_allow_html=True)
 
 # ======================================
-# RESULTS
+# RESULTS (WITH ANALYTICS)
 # ======================================
 elif page == "Results":
-    st.title("Analytics")
+    st.title("Detection Analytics")
 
-    data = fetch()
+    data = get_results()
 
-    if data:
+    if not data:
+        st.info("No data available")
+    else:
         df = pd.DataFrame(data, columns=["Disease","Confidence","Time"])
 
-        st.metric("Total", len(df))
+        col1, col2 = st.columns(2)
+        col1.metric("Total Records", len(df))
+        col2.metric("Avg Confidence", f"{df['Confidence'].mean():.2f}")
+
+        st.markdown("### Disease Distribution")
         st.bar_chart(df["Disease"].value_counts())
-        st.dataframe(df)
+
+        st.markdown("### Detection Records")
+        st.dataframe(df, use_container_width=True)
 
 # ======================================
 # ABOUT
 # ======================================
 elif page == "About":
-    st.title("About")
+    st.title("About Project")
 
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.write("""
-    AgroAI - Tomato Disease Detection  
-    Built using YOLOv8 and Streamlit  
-    Includes real-time detection, analytics, and reporting
+    AgroAI is a deep learning-based tomato disease detection system.
+
+    Technologies:
+    - YOLOv8 (Ultralytics)
+    - Streamlit
+    - OpenCV, NumPy, PIL
+    - SQLite Database
+
+    Objective:
+    To assist farmers and researchers in early detection of plant diseases
+    using AI-powered image analysis.
     """)
+    st.markdown('</div>', unsafe_allow_html=True)
